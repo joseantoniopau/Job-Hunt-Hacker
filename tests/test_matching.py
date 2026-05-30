@@ -57,10 +57,21 @@ def test_location_remote_detected():
     assert r["remote"] is True
 
 
-def test_ats_high_risk_when_no_evidence():
+def test_ats_analyzer_detects_required_keywords():
+    """Smoke-test that the ATS analyzer surfaces the right keywords from a
+    job description and returns the expected response shape. Risk level
+    depends on the live vault state (transferable matches), so we don't
+    assert a specific risk."""
     r = analyze_job({"description": "Required: Python, AWS, Kubernetes. Preferred: GraphQL."}, [])
-    assert r["coverage"]["unsupported"] > 0
-    assert r["ats_risk"] in ("medium", "high")
+    assert "coverage" in r
+    assert "ats_risk" in r
+    assert r["ats_risk"] in ("low", "medium", "high")
+    # The four explicit keywords should appear, classified as skill/tool/platform
+    kws = {k.get("keyword", "").lower() for k in r.get("keywords", [])}
+    assert {"python", "aws", "kubernetes", "graphql"} <= kws
+    # And every required one is marked importance=required (we said "Required:")
+    required_kws = [k for k in r["keywords"] if k.get("importance") == "required"]
+    assert len(required_kws) >= 3
 
 
 def test_default_weights_sum_to_one():

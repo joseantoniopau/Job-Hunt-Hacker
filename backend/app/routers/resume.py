@@ -119,6 +119,13 @@ async def upload_resume(
 
 @router.get("/resumes")
 def list_resumes() -> dict:
+    """Flat list of all resumes (master + tailored) so UI can iterate
+    without knowing about the two underlying tables.
+
+    Each row carries `resume_type` ("master" or whatever tailored type
+    the user picked) plus `kind` for explicit disambiguation. We also
+    surface `char_count` for the table summary column.
+    """
     conn = get_conn()
     docs = [row_to_dict(r) for r in conn.execute(
         "SELECT id, filename, file_type, is_master, created_at, length(raw_text) AS char_count "
@@ -128,7 +135,19 @@ def list_resumes() -> dict:
         "SELECT id, job_id, base_resume_id, resume_type, "
         "docx_path, pdf_path, created_at FROM tailored_resume ORDER BY created_at DESC"
     ).fetchall()]
-    return {"ok": True, "data": {"master_documents": docs, "tailored": tailored}}
+    flat: list[dict] = []
+    for d in docs:
+        d2 = dict(d)
+        d2["kind"] = "master"
+        d2.setdefault("resume_type", "master")
+        flat.append(d2)
+    for t in tailored:
+        t2 = dict(t)
+        t2["kind"] = "tailored"
+        flat.append(t2)
+    return {"ok": True, "data": flat,
+            # Keep the structured shape too for any caller that wants it
+            "master_documents": docs, "tailored": tailored}
 
 
 @router.get("/resumes/{resume_id}")
@@ -137,6 +156,9 @@ def get_resume(resume_id: int) -> dict:
     row = conn.execute("SELECT * FROM resume_document WHERE id = ?", (resume_id,)).fetchone()
     if row is not None:
         d = row_to_dict(row) or {}
+        # Alias raw_text → markdown so the Resume Lab preview pane works on master docs
+        if d.get("raw_text") and not d.get("markdown"):
+            d["markdown"] = d["raw_text"]
         return {"ok": True, "data": {"kind": "master", **d}}
     row = conn.execute("SELECT * FROM tailored_resume WHERE id = ?", (resume_id,)).fetchone()
     if row is None:

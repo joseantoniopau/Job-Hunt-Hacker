@@ -24,6 +24,9 @@ class SlotsBody(BaseModel):
     slot_minutes: int = 30
     work_hours_start: int = 9
     work_hours_end: int = 17
+    # User-drawn weekly availability grid: { "mon": [9,10,11,...], "tue": [...] }
+    # If provided, slot suggestions are filtered to hours marked available.
+    availability: Optional[dict] = None
 
 
 class EventBody(BaseModel):
@@ -48,7 +51,55 @@ def slots(body: SlotsBody) -> dict:
         slot_minutes=int(body.slot_minutes),
         work_hours=(int(body.work_hours_start), int(body.work_hours_end)),
     )
+    # If the user supplied an availability grid, filter the suggested slots
+    # to only those whose weekday+hour appears in their available hours.
+    if body.availability and isinstance(body.availability, dict) and out:
+        avail = {str(k).lower()[:3]: set(int(h) for h in (v or []))
+                 for k, v in body.availability.items()}
+        from datetime import datetime
+        filtered = []
+        for s in out:
+            try:
+                dt = datetime.fromisoformat(str(s).replace("Z", "+00:00"))
+                weekday = dt.strftime("%a").lower()[:3]
+                if weekday in avail and dt.hour in avail[weekday]:
+                    filtered.append(s)
+            except Exception:
+                filtered.append(s)
+        out = filtered
     return {"ok": True, "data": out}
+
+
+@router.get("/events")
+def list_events(application_id: Optional[int] = None,
+                limit: int = 100) -> dict:
+    """List stored calendar events. Used by the Calendar tab to populate
+    the upcoming-events table.
+    """
+    conn = get_conn()
+    sql = "SELECT * FROM calendar_event"
+    params: list = []
+    if application_id is not None:
+        sql += " WHERE application_id = ?"
+        params.append(int(application_id))
+    sql += " ORDER BY start_time ASC LIMIT ?"
+    params.append(int(limit))
+    rows = conn.execute(sql, params).fetchall()
+    out = []
+    from datetime import datetime, timezone
+    for r in rows:
+        d = row_to_dict(r) or {}
+        # UI-friendly aliases
+        st = d.get("start_time")
+        en = d.get("end_time")
+        if isinstance(st, (int, float)):
+            d["start_at"] = datetime.fromtimestamp(float(st), tz=timezone.utc).isoformat()
+        if isinstance(en, (int, float)):
+            d["end_at"] = datetime.fromtimestamp(float(en), tz=timezone.utc).isoformat()
+        if d.get("attendees"):
+            d["with"] = d["attendees"]
+        out.append(d)
+    return {"ok": True, "data": out, "events": out}
 
 
 @router.post("/event")

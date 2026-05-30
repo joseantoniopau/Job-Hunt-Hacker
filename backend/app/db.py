@@ -266,6 +266,8 @@ SCHEMA = [
         detected_type TEXT,
         received_at REAL,
         raw_json TEXT,
+        status TEXT,
+        status_updated_at REAL,
         FOREIGN KEY (application_id) REFERENCES application(id) ON DELETE SET NULL
     )""",
 
@@ -316,6 +318,9 @@ SCHEMA = [
 def _init_schema(conn: sqlite3.Connection) -> None:
     for stmt in SCHEMA:
         conn.execute(stmt)
+    # ----- lightweight migrations for existing DBs -----
+    _ensure_column(conn, "email_event", "status", "TEXT")
+    _ensure_column(conn, "email_event", "status_updated_at", "REAL")
     # seed singleton profile row
     cur = conn.execute("SELECT id FROM user_profile WHERE id = 1")
     if cur.fetchone() is None:
@@ -324,6 +329,26 @@ def _init_schema(conn: sqlite3.Connection) -> None:
             "INSERT INTO user_profile (id, currency, mode, created_at, updated_at) VALUES (1, 'USD', 'assisted', ?, ?)",
             (now, now),
         )
+
+
+def _ensure_column(conn: sqlite3.Connection, table: str, column: str, decl: str) -> None:
+    """ALTER TABLE … ADD COLUMN if the column doesn't already exist.
+
+    SQLite's ALTER is forgiving (no DROP needed) and tolerates this from
+    multiple workers — but we still check first because the error message
+    on "duplicate column" is noisy in logs.
+    """
+    try:
+        rows = conn.execute(f"PRAGMA table_info({table})").fetchall()
+    except sqlite3.Error:
+        return
+    if any(r[1] == column for r in rows):
+        return
+    try:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
+    except sqlite3.Error:
+        # Race or pre-existing — silently fine.
+        pass
 
 
 def init_db() -> None:

@@ -286,3 +286,29 @@ code {
   a { color: black !important; }
   h2 { border-bottom: 1px solid black !important; }
 }
+
+/* ----- Autopilot callout (docs landing) ----- */
+.autopilot-callout {
+  border: 3px solid #0a0a0a;
+  background: rgba(122, 10, 10, 0.06);
+  box-shadow: 6px 6px 0 #0a0a0a;
+  padding: 28px;
+  margin: 36px 0;
+}
+.autopilot-callout h2 {
+  color: #7a0a0a;
+  letter-spacing: -0.01em;
+}
+.autopilot-steps {
+  margin: 18px 0;
+  padding-left: 22px;
+  font-family: 'IBM Plex Sans', system-ui, sans-serif;
+  line-height: 1.7;
+}
+.autopilot-steps li { margin-bottom: 6px; }
+.autopilot-steps strong { font-weight: 700; color: #0a0a0a; }
+.pill-accent {
+  background: #7a0a0a;
+  color: #f4f1ea;
+  border: 1.5px solid #0a0a0a;
+}

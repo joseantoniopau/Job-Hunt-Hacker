@@ -7,6 +7,8 @@ import logging
 import traceback
 from pathlib import Path
 
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -18,10 +20,32 @@ from .db import init_db, audit
 log = logging.getLogger("jhh")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s | %(message)s")
 
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # ---- startup ----
+    init_db()
+    audit("server_start", "system")
+    log.info("Job Hunt Hacker ready at http://%s:%d", settings.host, settings.port)
+    try:
+        from .integrations import scheduler as _sched
+        _sched.start()
+    except Exception as exc:  # noqa: BLE001
+        log.warning("scheduler failed to start: %s", exc)
+    yield
+    # ---- shutdown ----
+    try:
+        from .integrations import scheduler as _sched
+        _sched.shutdown()
+    except Exception:
+        pass
+
+
 app = FastAPI(
     title="Job Hunt Hacker",
     description="Find better jobs. Tailor honestly. Apply with discipline.",
     version="0.1.0",
+    lifespan=lifespan,
 )
 
 app.add_middleware(
@@ -33,33 +57,10 @@ app.add_middleware(
 )
 
 
-@app.on_event("startup")
-def _startup() -> None:
-    init_db()
-    audit("server_start", "system")
-    log.info("Job Hunt Hacker ready at http://%s:%d", settings.host, settings.port)
-    # Best-effort scheduler bootstrap
-    try:
-        from .integrations import scheduler as _sched
-
-        _sched.start()
-    except Exception as exc:  # noqa: BLE001
-        log.warning("scheduler failed to start: %s", exc)
-
-
-@app.on_event("shutdown")
-def _shutdown() -> None:
-    try:
-        from .integrations import scheduler as _sched
-
-        _sched.shutdown()
-    except Exception:
-        pass
-
-
 # --- routers (import each in try/except so failures degrade gracefully) ---
 
 ROUTER_MODULES = [
+    "autopilot",
     "profile",
     "evidence",
     "vault",
@@ -77,6 +78,7 @@ ROUTER_MODULES = [
     "scheduler",
     "auto_apply",
     "stats",
+    "data",
 ]
 
 _loaded: list[str] = []

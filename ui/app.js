@@ -171,7 +171,7 @@
     // page-specific lazy loads
     if (name === 'setup')     loadProfile();
     if (name === 'vault')     { loadVault(); loadVaultSummary(); }
-    if (name === 'dashboard') loadJobs();
+    if (name === 'dashboard') { loadJobs(); loadSavedSearches(); }
     if (name === 'resume')    loadResumes();
     if (name === 'pipeline')  loadPipeline();
     if (name === 'inbox')     loadInbox();
@@ -204,6 +204,229 @@
       pill.textContent = 'OFFLINE';
       pill.classList.remove('pill-muted');
       pill.classList.add('pill-red');
+    }
+  }
+
+  // ============================================================
+  // AUTOPILOT — one-step "just find me a job" flow
+  // ============================================================
+  function bindAutopilot() {
+    const openBtn = $('#autopilot-open');
+    const modal = $('#autopilot-modal');
+    if (!openBtn || !modal) return;
+
+    openBtn.addEventListener('click', () => {
+      modal.classList.remove('hidden');
+      $('#autopilot-file').focus();
+    });
+    $('#autopilot-cancel').addEventListener('click', () => modal.classList.add('hidden'));
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) modal.classList.add('hidden');
+    });
+
+    $('#autopilot-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const fd = new FormData();
+      const fileEl = $('#autopilot-file');
+      if (fileEl.files && fileEl.files[0]) fd.append('resume_file', fileEl.files[0]);
+      for (const [id, name] of [
+        ['#autopilot-linkedin', 'linkedin_text'],
+        ['#autopilot-li-url', 'linkedin_url'],
+        ['#autopilot-gh-url', 'github_url'],
+        ['#autopilot-pf-url', 'portfolio_url'],
+        ['#ap-tailor-top', 'tailor_top'],
+        ['#ap-packet-top', 'packet_top'],
+        ['#ap-search-results', 'search_results'],
+        ['#ap-hours-old', 'search_hours_old'],
+        ['#ap-recur', 'daily_recurrence'],
+        ['#ap-sites', 'sites'],
+      ]) {
+        const v = ($(id).value || '').trim();
+        if (v) fd.append(name, v);
+      }
+      if (!fd.has('resume_file') && !fd.has('linkedin_text') && !fd.has('linkedin_url')) {
+        toast('Drop a resume or paste your LinkedIn first.', 'warn');
+        return;
+      }
+
+      // ---- Capture the four explicit picks the user made (employment,
+      // location, remote/country, comp, interview availability) and persist
+      // them to the profile right before autopilot runs so the inferred
+      // profile MERGES with these instead of overwriting. ----
+
+      const employmentTypes = Array.from(
+        document.querySelectorAll('#autopilot-employment-types input[type="checkbox"]:checked')
+      ).map(cb => cb.value);
+
+      // Remote preference is now structured: "remote-us", "remote-emea", etc.
+      // We split into the raw mode AND a preferred-region string.
+      const remoteRaw = $('#autopilot-remote').value || '';
+      let remoteMode = '';
+      let remoteRegion = '';
+      if (remoteRaw.startsWith('remote')) {
+        remoteMode = 'remote';
+        const suffix = remoteRaw.replace(/^remote-?/, '');
+        const REGION_LABEL = {
+          'worldwide': 'Remote · Worldwide',
+          'us':        'Remote · US Only',
+          'canada':    'Remote · Canada',
+          'emea':      'Remote · Europe / EMEA',
+          'latam':     'Remote · LATAM',
+          'apac':      'Remote · APAC',
+          'uk':        'Remote · UK',
+          '':          'Remote',
+        };
+        remoteRegion = REGION_LABEL[suffix] || 'Remote';
+      } else if (remoteRaw) {
+        remoteMode = remoteRaw;     // 'hybrid' | 'onsite'
+      }
+
+      const compRange = $('#autopilot-comp-range').value || '';
+      const locationPref = ($('#autopilot-location').value || '').trim();
+      let minSalary = null, prefSalary = null;
+      if (compRange.includes(':')) {
+        const [lo, hi] = compRange.split(':').map(n => parseInt(n, 10));
+        minSalary = lo;
+        prefSalary = hi;
+      }
+
+      // Interview availability → encode as a structured JSON object the
+      // Calendar tab understands: { tz, window:{start,end}, days:[...] }.
+      const availDays = Array.from(
+        document.querySelectorAll('#autopilot-avail-days input[type="checkbox"]:checked')
+      ).map(cb => cb.value);
+      const availWindowKey = $('#autopilot-avail-window').value;
+      const WINDOWS = {
+        morning:   { start: 9,  end: 12 },
+        afternoon: { start: 12, end: 17 },
+        evening:   { start: 17, end: 20 },
+        business:  { start: 9,  end: 17 },
+        anytime:   { start: 9,  end: 20 },
+      };
+      const availWindow = WINDOWS[availWindowKey] || WINDOWS.afternoon;
+      const availTz = $('#autopilot-avail-tz').value || 'America/New_York';
+      const interviewAvailability = {
+        timezone: availTz,
+        days: availDays,
+        window: availWindow,
+        window_label: availWindowKey,
+      };
+
+      const preProfile = {};
+      if (employmentTypes.length) preProfile.employment_types = employmentTypes;
+      if (remoteMode) preProfile.remote_preference = remoteMode;
+      const prefLocs = [];
+      if (locationPref) {
+        preProfile.location = locationPref;
+        prefLocs.push(locationPref);
+      }
+      if (remoteRegion) prefLocs.push(remoteRegion);
+      if (prefLocs.length) preProfile.preferred_locations = prefLocs;
+      if (minSalary != null) preProfile.minimum_salary = minSalary;
+      if (prefSalary != null) preProfile.preferred_salary = prefSalary;
+      preProfile.interview_availability_json = interviewAvailability;
+
+      if (Object.keys(preProfile).length) {
+        await api.put('/api/profile', preProfile, { silent: true });
+      }
+
+      const goBtn = $('#autopilot-go');
+      goBtn.disabled = true;
+      goBtn.textContent = 'RUNNING…';
+      const progress = $('#autopilot-progress');
+      const result = $('#autopilot-result');
+      progress.classList.remove('hidden');
+      result.classList.add('hidden');
+      progress.innerHTML = renderAutopilotProgress([
+        { name: 'profile_inferred', label: 'Inferring profile', status: 'pending' },
+        { name: 'vault_populated', label: 'Populating Career Evidence Vault', status: 'pending' },
+        { name: 'search_complete', label: 'Searching every job board', status: 'pending' },
+        { name: 'scoring_complete', label: 'Scoring every job vs your evidence', status: 'pending' },
+        { name: 'tailoring_complete', label: 'Tailoring resumes for top matches', status: 'pending' },
+        { name: 'packets_built', label: 'Building application packets', status: 'pending' },
+        { name: 'saved_search_registered', label: 'Scheduling daily re-run', status: 'pending' },
+      ]);
+
+      const r = await api.post('/api/autopilot/start', fd, { silent: true });
+      goBtn.disabled = false;
+      goBtn.textContent = 'START AUTOPILOT';
+
+      if (!r.ok && !r.data) {
+        toast('Autopilot failed: ' + (r.error || 'unknown'), 'error');
+        return;
+      }
+      const d = r.data || {};
+      progress.innerHTML = renderAutopilotProgress(d.steps || []);
+      result.classList.remove('hidden');
+      result.innerHTML = renderAutopilotResult(d);
+      toast(`Autopilot finished in ${(d.elapsed_ms || 0)/1000}s — ${d.packets?.built || 0} packets ready.`,
+            'success');
+      // Refresh background pill + nav stats
+      await loadAutopilotPill();
+      bootStatus();
+    });
+
+    loadAutopilotPill();
+  }
+
+  function renderAutopilotProgress(steps) {
+    const rows = (steps || []).map(s => {
+      const icon = s.status === 'ok' ? '✓' :
+                   s.status === 'error' ? '×' :
+                   '·';
+      const cls = s.status === 'ok' ? 'ap-ok' :
+                  s.status === 'error' ? 'ap-err' :
+                  'ap-pending';
+      return `<li class="ap-step ${cls}"><span class="ap-icon">${icon}</span>
+                <span class="ap-name">${s.label || s.name}</span>
+                <span class="ap-detail">${(s.detail || '').replace(/</g,'&lt;')}</span></li>`;
+    }).join('');
+    return `<ul class="ap-list">${rows}</ul>`;
+  }
+
+  function renderAutopilotResult(d) {
+    const parts = [];
+    parts.push(`<h4>Done in ${((d.elapsed_ms || 0)/1000).toFixed(1)}s</h4>`);
+    parts.push('<div class="ap-kpis">');
+    parts.push(`<span class="ap-kpi"><strong>${d.search?.discovered ?? 0}</strong> discovered</span>`);
+    parts.push(`<span class="ap-kpi"><strong>${d.search?.inserted ?? 0}</strong> new jobs</span>`);
+    parts.push(`<span class="ap-kpi"><strong>${d.scoring?.scored ?? 0}</strong> scored</span>`);
+    parts.push(`<span class="ap-kpi"><strong>${d.tailoring?.tailored ?? 0}</strong> tailored</span>`);
+    parts.push(`<span class="ap-kpi"><strong>${d.packets?.built ?? 0}</strong> packets</span>`);
+    parts.push('</div>');
+    const paths = d.packets?.paths || [];
+    if (paths.length) {
+      parts.push('<h4>Top packets ready for review</h4><ol class="ap-packets">');
+      for (const p of paths) {
+        parts.push(`<li>
+          <strong>${(p.title || '').replace(/</g,'&lt;')}</strong>
+          @ ${(p.company || '').replace(/</g,'&lt;')}
+          — score ${(Number(p.score || 0) * 100).toFixed(0)}
+          <span class="ap-path muted small">${(p.packet_dir || '').replace(/</g,'&lt;')}</span>
+        </li>`);
+      }
+      parts.push('</ol>');
+    }
+    if (d.saved_search?.created) {
+      parts.push(`<p class="muted small">Recurring saved search active: <strong>${(d.saved_search.label || '').replace(/</g,'&lt;')}</strong> — re-runs every ${d.saved_search.frequency_hours || 24}h.</p>`);
+    }
+    parts.push('<div class="ap-actions">');
+    parts.push('<a class="btn btn-secondary" href="#pipeline">OPEN PIPELINE</a>');
+    parts.push('<a class="btn btn-ghost" href="#dashboard">OPEN DASHBOARD</a>');
+    parts.push('</div>');
+    return parts.join('');
+  }
+
+  async function loadAutopilotPill() {
+    const r = await api.get('/api/autopilot/status', { silent: true });
+    const pill = $('#autopilot-pill');
+    if (!pill) return;
+    if (r.ok && r.data?.active) {
+      pill.classList.remove('hidden');
+      pill.textContent = `AUTOPILOT ON — ${r.data.label} · every ${r.data.frequency_hours}h`;
+      pill.classList.add('autopilot-pill-on');
+    } else {
+      pill.classList.add('hidden');
     }
   }
 
@@ -264,6 +487,135 @@
     $('#profile-reload').addEventListener('click', loadProfile);
   }
 
+  // ----- Quick Setup: infer profile from resume + LinkedIn -----
+  function bindInferForm() {
+    const f = $('#infer-form');
+    if (!f) return;
+
+    f.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const fd = new FormData();
+      const fileEl = $('#infer-file');
+      if (fileEl && fileEl.files && fileEl.files[0]) {
+        fd.append('resume_file', fileEl.files[0]);
+      }
+      const linkedinText = $('#infer-linkedin').value.trim();
+      if (linkedinText) fd.append('linkedin_text', linkedinText);
+      for (const name of ['linkedin_url', 'github_url', 'portfolio_url']) {
+        const v = f.elements.namedItem(name).value.trim();
+        if (v) fd.append(name, v);
+      }
+      if (!fd.has('resume_file') && !fd.has('linkedin_text') &&
+          !fd.has('linkedin_url') && !fd.has('github_url') && !fd.has('portfolio_url')) {
+        toast('Add at least a resume file or LinkedIn text first.', 'warn');
+        return;
+      }
+      $('#infer-status').textContent = 'Parsing…';
+      const r = await api.post('/api/profile/infer', fd);
+      if (!r.ok) {
+        $('#infer-status').textContent = 'Failed to infer.';
+        return;
+      }
+      const inferred = r.inferred_fields || [];
+      const meta = r.inferred_meta || {};
+      const used = r.sources_used || [];
+      applyInferredToProfileForm(r.data || {}, inferred);
+      renderInferMeta(used, meta, r.notes || []);
+      const fieldCount = inferred.length;
+      $('#infer-status').textContent =
+        fieldCount > 0
+          ? `Inferred ${fieldCount} field${fieldCount === 1 ? '' : 's'}. Review and SAVE PROFILE when ready.`
+          : 'No fields could be inferred — try adding more text.';
+      toast(fieldCount > 0
+        ? `Profile pre-filled (${fieldCount} fields). Review and save.`
+        : 'No fields inferred — paste more text.',
+        fieldCount > 0 ? 'success' : 'warn');
+    });
+
+    $('#infer-clear').addEventListener('click', () => {
+      const pf = $('#profile-form');
+      if (!pf) return;
+      pf.querySelectorAll('.field-inferred').forEach(el => el.classList.remove('field-inferred'));
+      $('#infer-meta').hidden = true;
+      $('#infer-meta').innerHTML = '';
+      $('#infer-status').textContent = '';
+    });
+  }
+
+  function applyInferredToProfileForm(data, inferredFields) {
+    const f = $('#profile-form');
+    if (!f) return;
+    const inferredSet = new Set(inferredFields);
+
+    // Standard scalar + list fields
+    for (const [k, v] of Object.entries(data)) {
+      const inp = f.elements.namedItem(k);
+      if (!inp) continue;
+      if (Array.isArray(v)) {
+        if (v.length) inp.value = listToCsv(v);
+      } else if (v && typeof v === 'object') {
+        continue;
+      } else if (v != null && v !== '') {
+        inp.value = v;
+      }
+      if (inferredSet.has(k)) {
+        // Visual hint on the wrapping <label>
+        const wrap = inp.closest('label') || inp;
+        wrap.classList.add('field-inferred');
+      }
+    }
+
+    // Checkbox groups (employment_types, seniority_targets)
+    for (const grp of f.querySelectorAll('.check-grid[data-name]')) {
+      const name = grp.dataset.name;
+      const arr = Array.isArray(data[name]) ? data[name] : [];
+      if (!arr.length) continue;
+      for (const cb of grp.querySelectorAll('input[type="checkbox"]')) {
+        if (arr.includes(cb.value)) cb.checked = true;
+      }
+      if (inferredSet.has(name)) {
+        const wrap = grp.closest('label') || grp;
+        wrap.classList.add('field-inferred');
+      }
+    }
+
+    $('#profile-status').textContent =
+      'Pre-filled from resume / LinkedIn. Highlighted rows came from inference — review and edit.';
+  }
+
+  function renderInferMeta(sourcesUsed, fieldMeta, notes) {
+    const host = $('#infer-meta');
+    if (!host) return;
+    host.innerHTML = '';
+    host.hidden = false;
+
+    const sourceLine = sourcesUsed.length
+      ? sourcesUsed.map(s => {
+          if (s.kind === 'resume')
+            return `resume "${s.filename}" (${s.experience_entries} roles, ${s.skills_found} skills)`;
+          if (s.kind === 'linkedin')
+            return `linkedin (${(s.sections_found || []).join(', ') || 'no sections'})`;
+          return s.kind;
+        }).join(' · ')
+      : 'no sources parsed';
+
+    host.appendChild(el('div', { class: 'kv-row' },
+      el('span', { class: 'kv-key', text: 'sources:' }),
+      el('span', { class: 'kv-val', text: sourceLine })));
+
+    const fields = Object.keys(fieldMeta);
+    if (fields.length) {
+      host.appendChild(el('div', { class: 'kv-row' },
+        el('span', { class: 'kv-key', text: 'fields filled:' }),
+        el('span', { class: 'kv-val', text: fields.join(', ') })));
+    }
+    if (notes && notes.length) {
+      host.appendChild(el('div', { class: 'kv-row' },
+        el('span', { class: 'kv-key', text: 'notes:' }),
+        el('span', { class: 'kv-val', text: notes.join(' | ') })));
+    }
+  }
+
   // ----- evidence upload -----
   function bindEvidence() {
     const dz = $('#dropzone');
@@ -286,22 +638,139 @@
       e.preventDefault();
       const fd = serializeForm(e.target);
       const r = await api.post('/api/evidence/url', fd);
-      if (r.ok) { toast('URL ingested.', 'success'); e.target.reset(); }
+      if (r.ok) {
+        toast('URL ingested.', 'success');
+        // If this looks like a portfolio/about/github URL, also let it
+        // contribute to the profile auto-fill.
+        if (isSetupVisible() && fd.url) {
+          const isGh = /github\.com/i.test(fd.url);
+          const isLi = /linkedin\.com/i.test(fd.url);
+          const inferFD = new FormData();
+          if (isGh) inferFD.append('github_url', fd.url);
+          else if (isLi) inferFD.append('linkedin_url', fd.url);
+          else inferFD.append('portfolio_url', fd.url);
+          await runInferAndApply(inferFD, { silent: true });
+        }
+        e.target.reset();
+      }
     });
     $('#github-form').addEventListener('submit', async (e) => {
       e.preventDefault();
       const fd = serializeForm(e.target);
       fd.repo_urls = csvToList(fd.repo_urls);
       const r = await api.post('/api/github/ingest', fd);
-      if (r.ok) { toast('GitHub ingest scheduled.', 'success'); e.target.reset(); }
+      if (r.ok) {
+        toast('GitHub ingest scheduled.', 'success');
+        if (isSetupVisible() && fd.profile_url) {
+          const inferFD = new FormData();
+          inferFD.append('github_url', fd.profile_url);
+          await runInferAndApply(inferFD, { silent: true });
+        }
+        e.target.reset();
+      }
     });
     $('#linkedin-form').addEventListener('submit', async (e) => {
       e.preventDefault();
       const fd = serializeForm(e.target);
-      const r = await api.post('/api/evidence/linkedin', fd);
-      if (r.ok) { toast('LinkedIn text ingested.', 'success'); e.target.reset(); }
+      // No dedicated /evidence/linkedin endpoint; route to text or url.
+      let r;
+      if (fd.text && fd.text.trim()) {
+        r = await api.post('/api/evidence/text', {
+          title: 'LinkedIn paste',
+          text: fd.text,
+          source_type: 'linkedin',
+        });
+      } else if (fd.url) {
+        r = await api.post('/api/evidence/url', { url: fd.url, source_type: 'linkedin' });
+      } else {
+        toast('Provide LinkedIn text or URL.', 'error');
+        return;
+      }
+      if (r.ok) {
+        toast('LinkedIn ingested.', 'success');
+        // Feed the LinkedIn content into profile inference.
+        if (isSetupVisible()) {
+          const inferFD = new FormData();
+          if (fd.text && fd.text.trim()) inferFD.append('linkedin_text', fd.text);
+          if (fd.url) inferFD.append('linkedin_url', fd.url);
+          await runInferAndApply(inferFD, { silent: true });
+        }
+        e.target.reset();
+      }
     });
   }
+
+  function isSetupVisible() {
+    const setup = document.querySelector('section.page[data-page="setup"]');
+    return !!setup && !setup.classList.contains('hidden');
+  }
+
+  /** POST FormData to /api/profile/infer and merge the result into the
+   *  profile form WITHOUT overwriting fields the user has already filled.
+   *  Used by the dropzone + URL/LinkedIn/GitHub ingest paths so any
+   *  ingestion event on the Setup page contributes to auto-fill. */
+  async function runInferAndApply(fd, { silent = false } = {}) {
+    const r = await api.post('/api/profile/infer', fd, { silent: true });
+    if (!r.ok) return false;
+    const inferred = r.inferred_fields || [];
+    if (!inferred.length) return false;
+    mergeInferredIntoProfileForm(r.data || {}, inferred);
+    renderInferMeta(r.sources_used || [], r.inferred_meta || {}, r.notes || []);
+    const status = $('#infer-status');
+    if (status) status.textContent =
+      `Auto-filled ${inferred.length} more field${inferred.length === 1 ? '' : 's'} from this ingestion. Review and SAVE PROFILE.`;
+    if (!silent) {
+      toast(`Profile auto-filled (${inferred.length} fields). Review and save.`, 'success');
+    }
+    return true;
+  }
+
+  /** Like applyInferredToProfileForm but ONLY writes fields the user has
+   *  not already filled, so successive ingestions accumulate instead of
+   *  clobbering each other's contributions. */
+  function mergeInferredIntoProfileForm(data, inferredFields) {
+    const f = $('#profile-form');
+    if (!f) return;
+    const inferredSet = new Set(inferredFields);
+
+    const fieldHasValue = (inp) => {
+      if (!inp) return false;
+      if (inp.type === 'checkbox') return false; // checkboxes handled below
+      return (inp.value || '').trim() !== '';
+    };
+
+    for (const [k, v] of Object.entries(data)) {
+      const inp = f.elements.namedItem(k);
+      if (!inp) continue;
+      if (fieldHasValue(inp)) continue;
+      if (Array.isArray(v)) {
+        if (v.length) inp.value = listToCsv(v);
+      } else if (v && typeof v === 'object') {
+        continue;
+      } else if (v != null && v !== '') {
+        inp.value = v;
+      }
+      if (inferredSet.has(k)) {
+        const wrap = inp.closest('label') || inp;
+        wrap.classList.add('field-inferred');
+      }
+    }
+
+    for (const grp of f.querySelectorAll('.check-grid[data-name]')) {
+      const name = grp.dataset.name;
+      const arr = Array.isArray(data[name]) ? data[name] : [];
+      if (!arr.length) continue;
+      let touched = false;
+      for (const cb of grp.querySelectorAll('input[type="checkbox"]')) {
+        if (arr.includes(cb.value) && !cb.checked) { cb.checked = true; touched = true; }
+      }
+      if (touched && inferredSet.has(name)) {
+        const wrap = grp.closest('label') || grp;
+        wrap.classList.add('field-inferred');
+      }
+    }
+  }
+
   async function uploadFiles(files) {
     const list = $('#upload-list');
     for (const f of files) {
@@ -316,7 +785,24 @@
       const status = li.lastChild;
       if (r.ok) status.textContent = 'OK';
       else status.textContent = 'failed (' + (r.error || 'err') + ')';
+
+      // If the dropped file looks like a resume AND we're on the Setup
+      // page, run it through the profile inference too so the form fills.
+      if (r.ok && isSetupVisible() && looksLikeResume(f.name)) {
+        const inferFD = new FormData();
+        inferFD.append('resume_file', f);
+        const filled = await runInferAndApply(inferFD, { silent: true });
+        if (filled) {
+          status.textContent = 'OK · profile filled';
+        }
+      }
     }
+  }
+
+  function looksLikeResume(name) {
+    const n = (name || '').toLowerCase();
+    return /\b(resume|cv|curriculum)\b/.test(n) ||
+           /\.(pdf|docx|doc|md|txt)$/.test(n);
   }
 
   // ============================================================
@@ -332,9 +818,9 @@
     });
   }
   async function loadVault() {
-    // sources
-    const sR = await api.get('/api/vault/summary', { silent: true });
-    const sources = (sR.ok && sR.data && (sR.data.sources || sR.data)) || [];
+    // sources — vault/summary plus evidence/sources for the full list
+    const sR = await api.get('/api/evidence/sources', { silent: true });
+    const sources = (sR.ok && (sR.data?.sources || sR.data || [])) || [];
     const sBody = $('#vault-sources tbody');
     sBody.innerHTML = '';
     if (!Array.isArray(sources) || !sources.length) {
@@ -353,21 +839,14 @@
         ]));
       }
     }
-    // contradictions
-    const cR = await api.get('/api/vault/contradictions', { silent: true });
-    const banner = $('#vault-contradictions');
-    if (cR.ok && Array.isArray(cR.data) && cR.data.length) {
-      banner.classList.remove('hidden');
-      banner.textContent = `${cR.data.length} contradiction(s) detected — review claims below.`;
-    } else {
-      banner.classList.add('hidden');
-    }
+    // contradictions: only surface after a scan; no GET endpoint, so hide by default
+    $('#vault-contradictions').classList.add('hidden');
     await loadVaultClaims();
   }
   async function deleteSource(id) {
     if (!id) return;
     if (!confirm('Delete source ' + id + ' and its claims?')) return;
-    const r = await api.del('/api/vault/sources/' + id);
+    const r = await api.del('/api/evidence/sources/' + id);
     if (r.ok) { toast('Deleted.', 'success'); loadVault(); }
   }
   async function loadVaultClaims() {
@@ -423,7 +902,19 @@
     $('#claim-allowed').addEventListener('change', loadVaultClaims);
     $('#claims-scan').addEventListener('click', async () => {
       const r = await api.post('/api/vault/contradictions/scan', {});
-      if (r.ok) { toast('Contradiction scan done.', 'success'); loadVault(); }
+      if (r.ok) {
+        const n = Array.isArray(r.data) ? r.data.length : (r.data?.count ?? 0);
+        const banner = $('#vault-contradictions');
+        if (n) {
+          banner.textContent = `${n} contradiction(s) detected — review claims below.`;
+          banner.classList.remove('hidden');
+        } else {
+          banner.textContent = 'No contradictions found.';
+          banner.classList.remove('hidden');
+        }
+        toast('Contradiction scan done.', 'success');
+        loadVault();
+      }
     });
   }
 
@@ -550,7 +1041,7 @@
   }
   async function buildPacket(jobId) {
     const r = await api.post('/api/packet/build', { job_id: jobId });
-    if (r.ok) toast('Packet built: ' + (r.data?.path || 'ok'), 'success');
+    if (r.ok) toast('Packet built: ' + (r.data?.packet_dir || r.data?.path || 'ok'), 'success');
   }
   async function saveToPipeline(job) {
     const r = await api.post('/api/applications', { job_id: job.id, status: 'saved' });
@@ -561,7 +1052,7 @@
   // RESUME LAB
   // ============================================================
   async function loadResumes() {
-    const r = await api.get('/api/resume', { silent: true });
+    const r = await api.get('/api/resumes', { silent: true });
     const list = (r.ok && (r.data || [])) || [];
     state.resumes = list;
     const body = $('#resume-list tbody');
@@ -583,7 +1074,7 @@
     }
   }
   async function openResume(id) {
-    const r = await api.get('/api/resume/' + id, { silent: true });
+    const r = await api.get('/api/resumes/' + id, { silent: true });
     if (!r.ok) return;
     const res = r.data || {};
     state.selectedResume = res;
@@ -631,15 +1122,26 @@
   }
   function bindResume() {
     $('#resume-new-master').addEventListener('click', async () => {
-      const r = await api.post('/api/resume', { resume_type: 'master' });
-      if (r.ok) { toast('Master resume created.', 'success'); loadResumes(); }
+      // Master resume creation = upload a base file. Trigger file picker.
+      const f = document.createElement('input');
+      f.type = 'file';
+      f.accept = '.pdf,.docx,.md,.txt';
+      f.onchange = async () => {
+        if (!f.files.length) return;
+        const fd = new FormData();
+        fd.append('file', f.files[0]);
+        fd.append('resume_type', 'master');
+        const r = await api.post('/api/resume/upload', fd);
+        if (r.ok) { toast('Master resume uploaded.', 'success'); loadResumes(); }
+      };
+      f.click();
     });
     $$('.resume-panel [data-export]').forEach(btn => {
       btn.addEventListener('click', () => {
         const res = state.selectedResume;
         if (!res) { toast('Select a resume first.', 'error'); return; }
         const fmt = btn.dataset.export;
-        window.open(`/api/resume/${res.id}/export?format=${fmt}`, '_blank');
+        window.open(`/api/resume/${res.id}/download/${fmt}`, '_blank');
       });
     });
     $('#resume-print').addEventListener('click', () => window.print());
@@ -757,9 +1259,11 @@
       return;
     }
     for (const e of evs) {
+      // Skip events already resolved server-side.
+      if (e.status === 'replied' || e.status === 'ignored' || e.status === 'actioned') continue;
       const cls = e.classification || 'other';
       const cssClass = cls === 'recruiter' ? 'badge-green' : cls === 'rejection' ? 'badge-red' : cls === 'interview' ? 'badge-blue' : 'badge-muted';
-      body.appendChild(el('tr', {}, [
+      body.appendChild(el('tr', { 'data-event-id': String(e.id) }, [
         el('td', { text: fmtRel(e.received_at) }),
         el('td', { text: safeText(e.from_address || '—') }),
         el('td', { text: safeText(e.subject || '(no subject)') }),
@@ -773,7 +1277,7 @@
     }
   }
   async function draftReply(ev) {
-    const r = await api.post('/api/email/draft', { event_id: ev.id });
+    const r = await api.post('/api/email/draft-reply', { event_id: ev.id });
     if (!r.ok) return;
     const draft = r.data?.text || r.data?.draft || '';
     const m = $('#card-modal');
@@ -795,8 +1299,22 @@
     };
   }
   async function markReplied(ev) {
+    if (!ev || !ev.id) return;
     const r = await api.patch('/api/email/events/' + ev.id, { status: 'replied' });
-    if (r.ok) { toast('Marked replied.', 'success'); loadInbox(); }
+    if (!r.ok) return;
+    toast('Marked replied.', 'success');
+    // Remove the row visually
+    const rows = $$('#inbox-table tbody tr');
+    for (const tr of rows) {
+      if (tr.dataset.eventId === String(ev.id)) {
+        tr.remove();
+        break;
+      }
+    }
+    const tbody = $('#inbox-table tbody');
+    if (tbody && !tbody.children.length) {
+      tbody.appendChild(el('tr', {}, el('td', { colspan: 6, class: 'empty', text: 'No emails ingested.' })));
+    }
   }
   function bindInbox() {
     $('#inbox-refresh').addEventListener('click', loadInbox);
@@ -846,12 +1364,50 @@
       else slots.forEach(s => list.appendChild(el('li', { text: typeof s === 'string' ? s : JSON.stringify(s) })));
     });
     $('#cal-refresh').addEventListener('click', loadCalendarEvents);
+    const createForm = $('#cal-create-form');
+    if (createForm) {
+      createForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const data = serializeForm(createForm);
+        const status = $('#cal-create-status');
+        if (!data.title || !data.start || !data.end) {
+          if (status) status.textContent = 'title, start, end are required';
+          return;
+        }
+        const startISO = new Date(data.start).toISOString();
+        const endISO = new Date(data.end).toISOString();
+        const attendees = csvToList(data.attendees || '');
+        if (!confirm(`Create event "${data.title}" from ${startISO} to ${endISO}?`)) return;
+        const body = {
+          title: data.title,
+          start: startISO,
+          end: endISO,
+          attendees,
+          description: data.description || '',
+          confirmed: true,
+        };
+        if (data.application_id) body.application_id = Number(data.application_id);
+        if (status) status.textContent = 'creating…';
+        const r = await api.post('/api/calendar/event', body);
+        if (r.ok) {
+          const d = r.data || {};
+          const ics = d.ics_path ? ` · ICS: ${d.ics_path}` : '';
+          if (status) status.textContent = 'created event #' + (d.event_id || '?') + ics;
+          toast('Event created.', 'success');
+          createForm.reset();
+          loadCalendarEvents();
+        } else if (status) {
+          status.textContent = 'create failed';
+        }
+      });
+    }
   }
   async function loadCalendarEvents() {
+    // Fetch the actual events list (the /status endpoint only reports OAuth state).
     const r = await api.get('/api/calendar/events', { silent: true });
     const body = $('#cal-events tbody');
     body.innerHTML = '';
-    const evs = (r.ok && (r.data || [])) || [];
+    const evs = (r.ok && (r.data?.events || r.data || [])) || [];
     if (!evs.length) {
       body.appendChild(el('tr', {}, el('td', { colspan: 4, class: 'empty', text: 'None.' })));
       return;
@@ -903,18 +1459,27 @@
     const body = $('#sources-table tbody'); body.innerHTML = '';
     const sources = d.job_sources || [];
     if (!sources.length) {
-      body.appendChild(el('tr', {}, el('td', { colspan: 5, class: 'empty', text: 'No sources registered.' })));
+      body.appendChild(el('tr', {}, el('td', { colspan: 7, class: 'empty', text: 'No sources registered.' })));
     } else {
       for (const s of sources) {
         const policy = s.policy || {};
         const risk = (policy.risk_level || policy.risk || 'GRAY').toUpperCase();
         const riskCls = risk === 'LEGAL' ? 'badge-green' : risk === 'GRAY' ? 'badge-warn' : 'badge-red';
-        body.appendChild(el('tr', {}, [
+        const testBtn = el('button', {
+          class: 'btn btn-ghost small',
+          type: 'button',
+          'data-action': 'test-source',
+          onclick: () => testSource(s.name),
+        }, 'TEST');
+        if (!s.healthy) testBtn.disabled = true;
+        body.appendChild(el('tr', { 'data-source': s.name }, [
           el('td', { text: safeText(policy.display_name || s.name) }),
           el('td', {}, el('span', { class: 'badge ' + (s.healthy ? 'badge-green' : 'badge-muted'), text: s.healthy ? 'YES' : 'no' })),
           el('td', {}, el('span', { class: 'badge ' + riskCls, text: risk })),
           el('td', { text: policy.apply_automation_allowed ? 'yes' : 'no' }),
           el('td', { text: safeText(policy.note || policy.description || '—') }),
+          el('td', {}, testBtn),
+          el('td', { 'data-cell': 'status' }, el('span', { class: 'muted small', text: s.healthy ? '—' : 'unhealthy' })),
         ]));
       }
     }
@@ -934,7 +1499,173 @@
       }
     }
     refreshWeightTotal();
+    loadApiKeys();
   }
+
+  // ----- API keys -----
+  async function loadApiKeys() {
+    const r = await api.get('/api/settings/api-keys', { silent: true });
+    if (!r.ok) return;
+    const keys = r.data?.keys || [];
+    const envPath = r.data?.env_path || '.env';
+    const pathEl = $('#api-keys-env-path');
+    if (pathEl) pathEl.textContent = envPath;
+
+    const groups = { llm: [], jobs: [], google: [], imap: [] };
+    for (const k of keys) (groups[k.group] || (groups[k.group] = [])).push(k);
+
+    for (const [grp, rows] of Object.entries(groups)) {
+      const host = document.querySelector(`#api-keys-group-${grp} .api-keys-rows`);
+      if (!host) continue;
+      host.innerHTML = '';
+      for (const k of rows) {
+        host.appendChild(renderApiKeyRow(k));
+      }
+    }
+  }
+
+  function renderApiKeyRow(k) {
+    const wrap = el('label', { class: 'api-key-row', 'data-env': k.env });
+    const statusBadge = el('span', {
+      class: 'badge api-key-status ' + (k.configured ? 'badge-blue' : 'badge-muted'),
+      text: k.configured ? 'set · not tested' : 'not set'
+    });
+    const head = el('div', { class: 'api-key-head' }, [
+      el('span', { class: 'api-key-label', text: k.label }),
+      el('span', { class: 'api-key-env', text: k.env }),
+      statusBadge,
+    ]);
+    wrap.appendChild(head);
+    if (k.purpose) {
+      wrap.appendChild(el('span', { class: 'api-key-purpose muted small', text: k.purpose }));
+    }
+
+    let input;
+    if (k.kind === 'choice') {
+      input = el('select', { name: k.env, 'data-kind': 'choice' });
+      for (const opt of (k.choices || [])) {
+        const o = el('option', { value: opt, text: opt });
+        if (opt === (k.preview || '').trim()) o.selected = true;
+        input.appendChild(o);
+      }
+    } else {
+      const type = k.kind === 'secret' ? 'password' : (k.kind === 'url' ? 'url' : 'text');
+      input = el('input', {
+        type, name: k.env, autocomplete: 'off', spellcheck: 'false',
+        placeholder: k.kind === 'secret'
+          ? (k.configured ? `currently: ${k.preview}` : 'paste key here')
+          : (k.preview || ''),
+      });
+      if (k.kind !== 'secret' && k.preview) input.value = k.preview;
+    }
+    input.classList.add('api-key-input');
+    wrap.appendChild(input);
+
+    const actions = el('div', { class: 'api-key-actions' });
+    if (k.kind === 'secret') {
+      const reveal = el('button', { type: 'button', class: 'btn btn-ghost small' }, 'SHOW');
+      reveal.addEventListener('click', () => {
+        const showing = input.type === 'text';
+        input.type = showing ? 'password' : 'text';
+        reveal.textContent = showing ? 'SHOW' : 'HIDE';
+      });
+      const clear = el('button', { type: 'button', class: 'btn btn-ghost small' }, 'CLEAR');
+      clear.addEventListener('click', () => { input.value = ''; input.dataset.cleared = '1'; });
+      actions.appendChild(reveal);
+      actions.appendChild(clear);
+    }
+    const testBtn = el('button', { type: 'button', class: 'btn btn-ghost small' }, 'TEST');
+    testBtn.addEventListener('click', () => testApiKey(k.env, input.value.trim()));
+    actions.appendChild(testBtn);
+    wrap.appendChild(actions);
+
+    const unlocksMsg = el('span', { class: 'api-key-msg muted small' });
+    wrap.appendChild(unlocksMsg);
+
+    return wrap;
+  }
+
+  async function testApiKey(envName, overrideValue) {
+    const row = document.querySelector(`.api-key-row[data-env="${envName}"]`);
+    if (!row) return;
+    const badge = row.querySelector('.api-key-status');
+    const msg = row.querySelector('.api-key-msg');
+    badge.className = 'badge api-key-status badge-muted';
+    badge.textContent = 'testing…';
+    msg.textContent = '';
+
+    const body = { env: envName };
+    if (overrideValue) body.value = overrideValue;
+    const r = await api.post('/api/settings/api-keys/test', body, { silent: true });
+    const d = r.data || {};
+    applyApiKeyTestResult(row, d);
+  }
+
+  function applyApiKeyTestResult(row, d) {
+    const badge = row.querySelector('.api-key-status');
+    const msg = row.querySelector('.api-key-msg');
+    const ok = !!d.ok;
+    badge.className = 'badge api-key-status ' + (ok ? 'badge-green' : 'badge-red');
+    badge.textContent = ok ? '✓ working' : (d.status || 'failed');
+    let line = d.message || '';
+    if (d.latency_ms != null) line += ` · ${d.latency_ms}ms`;
+    msg.textContent = line;
+  }
+
+  async function testAllApiKeys() {
+    const r = await api.post('/api/settings/api-keys/test-all', {}, { silent: true });
+    if (!r.ok) return;
+    for (const res of (r.data?.results || [])) {
+      const row = document.querySelector(`.api-key-row[data-env="${res.env}"]`);
+      if (row) applyApiKeyTestResult(row, res);
+    }
+  }
+
+  function bindApiKeysForm() {
+    const f = $('#api-keys-form');
+    if (!f) return;
+    f.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const payload = { keys: {} };
+      for (const inp of f.querySelectorAll('.api-key-input')) {
+        const env = inp.name;
+        const val = (inp.value || '').trim();
+        // For secrets, only send if user typed something OR explicitly cleared.
+        if (inp.type === 'password' || inp.dataset.kind === 'secret-was') {
+          if (val || inp.dataset.cleared === '1') payload.keys[env] = val;
+        } else {
+          payload.keys[env] = val;
+        }
+      }
+      if (!Object.keys(payload.keys).length) {
+        toast('Nothing to save.', 'warn');
+        return;
+      }
+      $('#api-keys-status').textContent = 'Saving…';
+      const r = await api.put('/api/settings/api-keys', payload);
+      if (r.ok) {
+        const d = r.data || {};
+        const u = (d.updated || []).length;
+        const c = (d.cleared || []).length;
+        $('#api-keys-status').textContent =
+          `Saved. Testing… updated=${u} cleared=${c}. Written to ${d.env_path || '.env'}.`;
+        toast(`API keys saved (${u} set, ${c} cleared). Testing now…`, 'success');
+        // Reload settings + api keys to refresh "configured" badges
+        await loadSettings();
+        // Test everything that has a value so the user sees green/red checks
+        await testAllApiKeys();
+        $('#api-keys-status').textContent =
+          `Saved + tested. Updated=${u} Cleared=${c}.`;
+      } else {
+        $('#api-keys-status').textContent = 'Save failed.';
+      }
+    });
+    $('#api-keys-reload').addEventListener('click', async () => {
+      await loadApiKeys();
+      await testAllApiKeys();
+    });
+  }
+
   function refreshWeightTotal() {
     let total = 0;
     for (const inp of $$('#weights-form input[type="range"]')) {
@@ -963,7 +1694,11 @@
       e.preventDefault();
       const mode = e.target.elements.mode.value;
       const r = await api.put('/api/settings/mode', { mode });
-      if (r.ok) { toast('Mode: ' + mode, 'success'); $('#mode-pill').textContent = 'MODE: ' + mode.toUpperCase(); }
+      if (r.ok) {
+        const finalMode = (r.data && r.data.mode) || mode;
+        toast('Mode: ' + finalMode, 'success');
+        $('#mode-pill').textContent = 'MODE: ' + String(finalMode).toUpperCase();
+      }
     });
     $('#aa-enable').addEventListener('click', () => $('#aa-modal').classList.remove('hidden'));
     $('#aa-cancel-btn').addEventListener('click', () => $('#aa-modal').classList.add('hidden'));
@@ -973,42 +1708,230 @@
     $('#aa-ack').addEventListener('change', updateAaBtn);
     $('#aa-confirm').addEventListener('input', updateAaBtn);
     $('#aa-confirm-btn').addEventListener('click', async () => {
-      const r = await api.post('/api/auto-apply/enable', { acknowledged: true });
-      if (r.ok) {
-        toast('Auto-apply enabled.', 'success');
-        $('#aa-modal').classList.add('hidden');
-        $('#compliance-banner').classList.remove('hidden');
-        loadSettings();
-      }
+      // /api/auto-apply/resume requires {i_understand: true} (server-side
+      // gate matching the modal's typed-confirm). The modal already enforces
+      // the user typed ENABLE before this button enables, so we forward the
+      // acknowledgement to the server.
+      const r = await api.post('/api/auto-apply/resume', { i_understand: true });
+      if (r.ok) toast('Auto-apply runner resumed.', 'success');
+      else toast('Auto-apply could not be enabled: ' + (r.error || 'unknown error'), 'error');
+      $('#aa-modal').classList.add('hidden');
+      if (r.ok) $('#compliance-banner').classList.remove('hidden');
+      loadSettings();
     });
     $('#aa-disable').addEventListener('click', async () => {
-      const r = await api.post('/api/auto-apply/disable', {});
-      if (r.ok) { toast('Auto-apply disabled.', 'success'); loadSettings(); $('#compliance-banner').classList.add('hidden'); }
+      const r = await api.post('/api/auto-apply/halt', {});
+      if (r.ok) toast('Auto-apply halted.', 'success');
+      $('#compliance-banner').classList.add('hidden');
+      loadSettings();
     });
     $('#aa-halt').addEventListener('click', haltAutoApply);
     $('#halt-auto').addEventListener('click', haltAutoApply);
 
-    $('#export-data').addEventListener('click', () => window.open('/api/data/export', '_blank'));
-    $('#import-data').addEventListener('click', async () => {
-      const f = document.createElement('input');
-      f.type = 'file';
-      f.accept = '.json,.zip';
-      f.onchange = async () => {
-        if (!f.files.length) return;
-        const fd = new FormData();
-        fd.append('file', f.files[0]);
-        const r = await api.post('/api/data/import', fd);
-        if (r.ok) toast('Imported.', 'success');
-      };
-      f.click();
+    $('#export-data').addEventListener('click', async () => {
+      const status = $('#data-status');
+      if (status) status.textContent = 'preparing export…';
+      try {
+        const r = await fetch('/api/data/export', { method: 'GET' });
+        if (!r.ok) {
+          const txt = await r.text();
+          toast('Export failed: ' + (txt || r.status), 'error');
+          if (status) status.textContent = 'export failed';
+          return;
+        }
+        const blob = await r.blob();
+        const cd = r.headers.get('content-disposition') || '';
+        const m = /filename="?([^";]+)"?/.exec(cd);
+        const filename = (m && m[1]) || `jhh-export-${Date.now()}.json`;
+        const counts = r.headers.get('x-jhh-export-counts');
+        const url = URL.createObjectURL(blob);
+        const a2 = document.createElement('a');
+        a2.href = url; a2.download = filename;
+        document.body.appendChild(a2);
+        a2.click();
+        a2.remove();
+        URL.revokeObjectURL(url);
+        toast('Export downloaded.', 'success');
+        if (status) status.textContent = 'export saved as ' + filename + (counts ? ' · ' + counts : '');
+      } catch (e) {
+        toast('Export failed: ' + e.message, 'error');
+        if (status) status.textContent = 'export failed';
+      }
     });
+
+    const importInput = $('#import-data-file');
+    $('#import-data').addEventListener('click', () => importInput && importInput.click());
+    if (importInput) {
+      importInput.addEventListener('change', async () => {
+        if (!importInput.files || !importInput.files[0]) return;
+        const file = importInput.files[0];
+        if (!confirm(`Import "${file.name}" into the live database? Existing rows with matching IDs will be overwritten.`)) {
+          importInput.value = '';
+          return;
+        }
+        const status = $('#data-status');
+        if (status) status.textContent = 'importing…';
+        const fd = new FormData();
+        fd.append('file', file);
+        const r = await api.post('/api/data/import', fd);
+        importInput.value = '';
+        if (r.ok) {
+          const d = r.data || {};
+          const counts = d.imported_counts || {};
+          const summary = Object.entries(counts).filter(([, n]) => n > 0)
+            .map(([t, n]) => `${t}=${n}`).join(' ');
+          toast('Import complete.', 'success');
+          if (status) status.textContent = 'imported · ' + (summary || '0 rows') +
+            (d.error_count ? ` · ${d.error_count} errors` : '');
+          loadSettings();
+          if (typeof loadVaultSummary === 'function') loadVaultSummary();
+        } else if (status) {
+          status.textContent = 'import failed';
+        }
+      });
+    }
+
     $('#delete-data').addEventListener('click', async () => {
       if (!confirm('DELETE ALL DATA — are you sure?')) return;
       if (!confirm('This cannot be undone. Continue?')) return;
-      const r = await api.del('/api/data');
-      if (r.ok) { toast('All data deleted.', 'success'); loadSettings(); }
+      const status = $('#data-status');
+      if (status) status.textContent = 'wiping…';
+      const r = await api.del('/api/data?i_understand=ENABLE');
+      if (r.ok) {
+        toast('All data deleted. Profile reset.', 'success');
+        const d = r.data || {};
+        const counts = d.counts || {};
+        const summary = Object.entries(counts).map(([t, n]) => `${t}=${n}`).join(' ');
+        if (status) status.textContent = 'wiped · ' + summary;
+        // Reload everything we can
+        loadSettings();
+        if (typeof loadVaultSummary === 'function') loadVaultSummary();
+      } else if (status) {
+        status.textContent = 'delete failed';
+      }
     });
+
+    // ----- Source-test "TEST ALL" -----
+    const testAllBtn = $('#sources-test-all');
+    if (testAllBtn) {
+      testAllBtn.addEventListener('click', async () => {
+        const statusEl = $('#sources-test-status');
+        if (statusEl) statusEl.textContent = 'testing all healthy adapters…';
+        const sources = (state.settings && state.settings.job_sources) || [];
+        const healthy = sources.filter(s => s.healthy);
+        let okCount = 0;
+        for (const s of healthy) {
+          const ok = await testSource(s.name);
+          if (ok) okCount += 1;
+        }
+        if (statusEl) statusEl.textContent =
+          `tested ${healthy.length} · ok=${okCount} · failed=${healthy.length - okCount}`;
+      });
+    }
+
+    // ----- Saved searches -----
+    const saveBtn = $('#save-search-btn');
+    if (saveBtn) saveBtn.addEventListener('click', saveCurrentSearch);
+    const reloadSaved = $('#saved-searches-reload');
+    if (reloadSaved) reloadSaved.addEventListener('click', loadSavedSearches);
   }
+
+  // ============================================================
+  // Source connector live-test
+  // ============================================================
+  async function testSource(name) {
+    const row = document.querySelector(`#sources-table tr[data-source="${name}"]`);
+    const cell = row ? row.querySelector('[data-cell="status"]') : null;
+    const btn = row ? row.querySelector('button[data-action="test-source"]') : null;
+    if (cell) { cell.innerHTML = ''; cell.appendChild(el('span', { class: 'badge badge-muted', text: 'testing…' })); }
+    if (btn) btn.disabled = true;
+    const r = await api.post('/api/settings/sources/test/' + encodeURIComponent(name), {}, { silent: true });
+    if (btn) btn.disabled = false;
+    const d = (r && r.data) || {};
+    const ok = !!d.ok;
+    if (cell) {
+      cell.innerHTML = '';
+      cell.appendChild(el('span', {
+        class: 'badge ' + (ok ? 'badge-green' : 'badge-red'),
+        text: ok ? `${d.records ?? '?'} rec · ${d.latency_ms ?? '?'}ms` : (d.status || 'failed'),
+      }));
+      if (d.message) {
+        cell.appendChild(el('div', { class: 'muted small', text: d.message }));
+      }
+    }
+    return ok;
+  }
+
+  // ============================================================
+  // Saved searches
+  // ============================================================
+  async function loadSavedSearches() {
+    const tbody = $('#saved-searches-table tbody');
+    if (!tbody) return;
+    const r = await api.get('/api/scheduler/saved-searches', { silent: true });
+    const list = (r.ok && (r.data || [])) || [];
+    tbody.innerHTML = '';
+    if (!list.length) {
+      tbody.appendChild(el('tr', {}, el('td', { colspan: 7, class: 'empty', text: 'None yet.' })));
+      return;
+    }
+    for (const s of list) {
+      const q = s.query_json || {};
+      const summary = [q.query, q.location, q.is_remote ? 'remote' : null].filter(Boolean).join(' · ');
+      tbody.appendChild(el('tr', {}, [
+        el('td', { text: String(s.id) }),
+        el('td', { text: safeText(s.label || '') }),
+        el('td', { text: summary || '(no query)' }),
+        el('td', { text: String(s.frequency_hours ?? 24) }),
+        el('td', { text: fmtRel(s.last_run_at) }),
+        el('td', { text: s.enabled ? 'yes' : 'no' }),
+        el('td', {}, [
+          el('button', { class: 'btn btn-ghost small', onclick: () => runSavedSearch(s.id) }, 'RUN NOW'),
+          el('button', { class: 'btn btn-ghost small', onclick: () => deleteSavedSearch(s.id) }, 'DELETE'),
+        ]),
+      ]));
+    }
+  }
+
+  async function saveCurrentSearch() {
+    const form = $('#search-form');
+    if (!form) return;
+    const body = serializeForm(form);
+    if (!body.query) { toast('Query is required to save a search.', 'error'); return; }
+    const labelDefault = body.query + (body.location ? ' / ' + body.location : '');
+    const label = prompt('Label for this saved search:', labelDefault);
+    if (label == null) return;
+    const freqRaw = prompt('Run every how many hours?', '24');
+    if (freqRaw == null) return;
+    const frequency_hours = Math.max(1, parseInt(freqRaw, 10) || 24);
+    const r = await api.post('/api/scheduler/saved-searches', {
+      label: label || labelDefault,
+      query: body,
+      frequency_hours,
+      enabled: true,
+    });
+    if (r.ok) {
+      toast('Saved search created.', 'success');
+      loadSavedSearches();
+    }
+  }
+
+  async function runSavedSearch(sid) {
+    toast('Running saved search…');
+    const r = await api.post('/api/scheduler/run-now/' + sid, {});
+    if (r.ok) {
+      toast('Saved search done.', 'success');
+      loadSavedSearches();
+      loadJobs();
+    }
+  }
+
+  async function deleteSavedSearch(sid) {
+    if (!confirm('Delete saved search #' + sid + '?')) return;
+    const r = await api.del('/api/scheduler/saved-searches/' + sid);
+    if (r.ok) { toast('Deleted.', 'success'); loadSavedSearches(); }
+  }
+
   async function haltAutoApply() {
     const r = await api.post('/api/auto-apply/halt', {});
     if (r.ok) { toast('Auto-apply halted.', 'success'); loadSettings(); $('#compliance-banner').classList.add('hidden'); }
@@ -1020,7 +1943,10 @@
   function init() {
     bindRouting();
     bindProfileForm();
+    bindInferForm();
     bindEvidence();
+    bindApiKeysForm();
+    bindAutopilot();
     bindVault();
     bindSearch();
     bindResume();

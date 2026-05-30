@@ -29,7 +29,14 @@ def summary() -> dict:
 def list_claims(type: Optional[str] = None,
                 allowed_only: bool = False,
                 verified_only: bool = False,
+                # UI-friendly aliases so `?verified=true&allowed_for_resume=true` also works
+                verified: Optional[bool] = None,
+                allowed_for_resume: Optional[bool] = None,
                 source_id: Optional[int] = None) -> dict:
+    if verified is not None:
+        verified_only = bool(verified)
+    if allowed_for_resume is not None:
+        allowed_only = bool(allowed_for_resume)
     rows = career_vault.list_claims(
         source_id=source_id,
         claim_type=type,

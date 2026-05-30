@@ -95,13 +95,26 @@ def update_application(application_id: int, fields: dict) -> dict:
                "application_url", "resume_id", "cover_letter_id", "applied_at"}
     sets: list[str] = []
     vals: list[Any] = []
+    transition_to_applied = False
     for k, v in fields.items():
         if k not in allowed:
             continue
         if k == "status":
             v = _validate_status(v)
+            if v == "applied":
+                transition_to_applied = True
         sets.append(f"{k} = ?")
         vals.append(v)
+    # Auto-set applied_at when transitioning to status=applied, if not already set
+    if transition_to_applied and "applied_at" not in fields:
+        conn0 = get_conn()
+        existing = conn0.execute(
+            "SELECT applied_at FROM application WHERE id = ?",
+            (int(application_id),),
+        ).fetchone()
+        if existing and existing["applied_at"] is None:
+            sets.append("applied_at = ?")
+            vals.append(time.time())
     if not sets:
         return get_application(application_id) or {}
     vals.append(int(application_id))
@@ -133,6 +146,38 @@ def update_application(application_id: int, fields: dict) -> dict:
     return get_application(application_id) or {}
 
 
+def _alias_app(d: dict | None) -> dict | None:
+    """Surface UI-friendly aliases (title/company/score/packet_path/url)
+    on top of the joined columns so the frontend doesn't have to know about
+    the underlying schema.
+    """
+    if not d:
+        return d
+    out = dict(d)
+    if "job_title" in out:
+        out["title"] = out["job_title"]
+    if "job_company" in out:
+        out["company"] = out["job_company"]
+    if "job_location" in out and "location" not in out:
+        out["location"] = out["job_location"]
+    if "job_apply_url" in out:
+        out["url"] = out["job_apply_url"]
+    if "overall_score" in out:
+        out["score"] = out["overall_score"]
+    # packet_path: read from audit_json history if recorded; else empty
+    try:
+        hist = out.get("audit_json")
+        if isinstance(hist, list):
+            for entry in reversed(hist):
+                f = (entry or {}).get("fields") or {}
+                if "packet_path" in f:
+                    out["packet_path"] = f["packet_path"]
+                    break
+    except Exception:
+        pass
+    return out
+
+
 def get_application(application_id: int) -> dict | None:
     conn = get_conn()
     row = conn.execute(
@@ -145,7 +190,7 @@ def get_application(application_id: int) -> dict | None:
         "WHERE a.id = ?",
         (int(application_id),),
     ).fetchone()
-    return row_to_dict(row) if row else None
+    return _alias_app(row_to_dict(row)) if row else None
 
 
 def list_applications(status: str | None = None, limit: int = 100, offset: int = 0) -> list[dict]:
@@ -167,7 +212,7 @@ def list_applications(status: str | None = None, limit: int = 100, offset: int =
     sql += "ORDER BY a.id DESC LIMIT ? OFFSET ?"
     params.extend([int(limit), int(offset)])
     rows = conn.execute(sql, params).fetchall()
-    return [row_to_dict(r) for r in rows]
+    return [_alias_app(row_to_dict(r)) for r in rows]
 
 
 def pipeline_board() -> dict:

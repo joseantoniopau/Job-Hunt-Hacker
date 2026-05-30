@@ -26,6 +26,28 @@ class RescoreRequest(BaseModel):
     job_ids: list[int]
 
 
+def _alias_job(row: dict) -> dict:
+    """Add UI-friendly aliases so the frontend can rely on stable field
+    names (score, url, currency, is_remote, created_at) regardless of the
+    underlying DB column names.
+    """
+    if not row:
+        return row
+    out = dict(row)
+    if "overall_score" in out and "score" not in out:
+        out["score"] = out["overall_score"]
+    if "apply_url" in out and "url" not in out:
+        out["url"] = out["apply_url"]
+    if "currency" in out and "salary_currency" not in out:
+        out["salary_currency"] = out["currency"]
+    if "discovered_at" in out and "created_at" not in out:
+        out["created_at"] = out["discovered_at"]
+    if "remote_type" in out:
+        rt = (out.get("remote_type") or "").lower()
+        out["is_remote"] = rt == "remote"
+    return out
+
+
 @router.get("")
 def list_endpoint(
     status: Optional[str] = None,
@@ -37,6 +59,7 @@ def list_endpoint(
     rows = list_jobs(
         limit=limit, status=status, source=source, min_score=min_score, offset=offset
     )
+    rows = [_alias_job(r) for r in rows]
     return {"ok": True, "data": rows, "count": len(rows)}
 
 
@@ -45,7 +68,7 @@ def get_endpoint(job_id: int) -> dict:
     row = get_job(job_id)
     if not row:
         raise HTTPException(404, f"job {job_id} not found")
-    return {"ok": True, "data": row}
+    return {"ok": True, "data": _alias_job(row)}
 
 
 @router.patch("/{job_id}/status")
