@@ -634,6 +634,26 @@
     });
     input.addEventListener('change', () => uploadFiles(input.files));
 
+    const previewBtn = $('#url-preview-btn');
+    if (previewBtn) {
+      previewBtn.addEventListener('click', async () => {
+        const f = $('#url-form');
+        const url = (f.elements.namedItem('url').value || '').trim();
+        const sourceType = f.elements.namedItem('source_type').value || '';
+        if (!url) { toast('Enter a URL first.', 'warn'); return; }
+        const status = $('#url-preview-status');
+        const out = $('#url-preview-out');
+        status.textContent = 'fetching…';
+        out.classList.add('hidden');
+        const r = await api.post('/api/urls/preview', { url, source_type: sourceType });
+        if (!r.ok) { status.textContent = 'preview failed'; return; }
+        const d = r.data || {};
+        out.textContent = `URL: ${d.url || url}\nTITLE: ${d.title || ''}\nTYPE: ${d.content_type || ''}\n\n${(d.text || '').slice(0, 2000)}`;
+        out.classList.remove('hidden');
+        status.textContent = `previewed (${(d.text || '').length} chars)`;
+      });
+    }
+
     $('#url-form').addEventListener('submit', async (e) => {
       e.preventDefault();
       const fd = serializeForm(e.target);
@@ -944,6 +964,10 @@
     $('#jd-cover').addEventListener('click', () => state.selectedJob && coverForJob(state.selectedJob.id));
     $('#jd-packet').addEventListener('click', () => state.selectedJob && buildPacket(state.selectedJob.id));
     $('#jd-save').addEventListener('click', () => state.selectedJob && saveToPipeline(state.selectedJob));
+    $('#jd-recruiter').addEventListener('click', () => state.selectedJob && recruiterMessageForJob(state.selectedJob.id));
+    $('#jd-interview').addEventListener('click', () => state.selectedJob && interviewPrepForJob(state.selectedJob.id));
+    $('#jd-rescore').addEventListener('click', () => state.selectedJob && rescoreJob(state.selectedJob.id));
+    $('#jd-archive').addEventListener('click', () => state.selectedJob && archiveJob(state.selectedJob.id));
   }
   async function loadJobs() {
     const r = await api.get('/api/jobs?limit=200', { silent: true });
@@ -1047,6 +1071,72 @@
     const r = await api.post('/api/applications', { job_id: job.id, status: 'saved' });
     if (r.ok) { toast('Saved to pipeline.', 'success'); }
   }
+  async function recruiterMessageForJob(jobId) {
+    toast('Drafting recruiter message…');
+    const r = await api.post('/api/recruiter/message', { job_id: jobId, channel: 'email' });
+    if (!r.ok) return;
+    const text = r.data?.text || r.data?.message || '';
+    showTextModal('Recruiter message draft', text,
+      'Drafts are never sent automatically. Copy into LinkedIn / email.');
+  }
+  async function interviewPrepForJob(jobId) {
+    toast('Generating interview prep…');
+    const r = await api.post('/api/interview/prep', { job_id: jobId });
+    if (!r.ok) return;
+    const d = r.data || {};
+    const lines = [];
+    if (d.talking_points && d.talking_points.length) {
+      lines.push('TALKING POINTS');
+      d.talking_points.forEach(p => lines.push('  · ' + (typeof p === 'string' ? p : p.text || JSON.stringify(p))));
+      lines.push('');
+    }
+    if (d.likely_questions && d.likely_questions.length) {
+      lines.push('LIKELY QUESTIONS');
+      d.likely_questions.forEach(q => lines.push('  · ' + (typeof q === 'string' ? q : q.text || JSON.stringify(q))));
+    }
+    showTextModal('Interview prep', lines.join('\n') || JSON.stringify(d, null, 2),
+      'Generated from your evidence. Edit before the interview.');
+  }
+  async function rescoreJob(jobId) {
+    toast('Rescoring…');
+    const r = await api.post('/api/jobs/rescore', { job_ids: [jobId] });
+    if (!r.ok) return;
+    const scored = (r.data?.scored || []).length;
+    toast(`Rescored ${scored} job${scored === 1 ? '' : 's'}.`, 'success');
+    // Refresh detail panel
+    const fresh = await api.get('/api/jobs/' + jobId, { silent: true });
+    if (fresh.ok && fresh.data) openJobDetail(fresh.data);
+  }
+  async function archiveJob(jobId) {
+    if (!confirm('Archive this job? It will be hidden from search results.')) return;
+    const r = await api.patch('/api/jobs/' + jobId + '/status', { status: 'archived' });
+    if (r.ok) {
+      toast('Job archived.', 'success');
+      $('#job-detail').classList.add('hidden');
+      loadJobs();
+    }
+  }
+  function showTextModal(title, text, hint) {
+    const m = $('#card-modal');
+    if (!m) { alert(text); return; }
+    $('#card-modal-title').textContent = title;
+    const body = $('#card-modal-body');
+    body.innerHTML = '';
+    if (hint) body.appendChild(el('p', { class: 'muted small', text: hint }));
+    const ta = el('textarea', { id: 'modal-text', rows: 14 });
+    ta.value = text || '';
+    body.appendChild(ta);
+    m.classList.remove('hidden');
+    $('#card-save-btn').textContent = 'COPY';
+    $('#card-save-btn').onclick = async () => {
+      try { await navigator.clipboard.writeText($('#modal-text').value); toast('Copied.', 'success'); }
+      catch { toast('Copy failed — select text manually.', 'error'); }
+    };
+    $('#card-close-btn').onclick = () => {
+      $('#card-save-btn').textContent = 'SAVE';
+      m.classList.add('hidden');
+    };
+  }
 
   // ============================================================
   // RESUME LAB
@@ -1059,17 +1149,50 @@
     body.innerHTML = '';
     if (!list.length) {
       body.appendChild(el('tr', {}, el('td', { colspan: 5, class: 'empty', text: 'No resumes yet.' })));
+    } else {
+      for (const res of list) {
+        const downloads = ['md', 'txt', 'docx', 'pdf'].map(fmt =>
+          el('a', {
+            href: '/api/resume/' + res.id + '/download/' + fmt,
+            target: '_blank',
+            class: 'btn btn-ghost small',
+            text: fmt.toUpperCase(),
+            onclick: (e) => e.stopPropagation(),
+          })
+        );
+        body.appendChild(el('tr', { class: 'clickable', onclick: () => openResume(res.id) }, [
+          el('td', { text: String(res.id) }),
+          el('td', { text: safeText(res.resume_type || 'master') }),
+          el('td', { text: safeText(res.job_id || '—') }),
+          el('td', { text: fmtDate(res.updated_at || res.created_at) }),
+          el('td', {}, downloads),
+        ]));
+      }
+    }
+    // Cover letters list (parallel surface in Resume Lab)
+    loadCoverLetters();
+  }
+  async function loadCoverLetters() {
+    const host = $('#cover-letters-table tbody');
+    if (!host) return;
+    const r = await api.get('/api/cover-letters', { silent: true });
+    const list = (r.ok && (r.data || [])) || [];
+    host.innerHTML = '';
+    if (!list.length) {
+      host.appendChild(el('tr', {}, el('td', { colspan: 4, class: 'empty', text: 'No cover letters yet.' })));
       return;
     }
-    for (const res of list) {
-      body.appendChild(el('tr', { class: 'clickable', onclick: () => openResume(res.id) }, [
-        el('td', { text: String(res.id) }),
-        el('td', { text: safeText(res.resume_type || 'master') }),
-        el('td', { text: safeText(res.job_id || '—') }),
-        el('td', { text: fmtDate(res.updated_at || res.created_at) }),
-        el('td', {}, [
-          el('button', { class: 'btn btn-ghost small', onclick: (e) => { e.stopPropagation(); openResume(res.id); } }, 'OPEN'),
-        ]),
+    for (const cl of list) {
+      host.appendChild(el('tr', {}, [
+        el('td', { text: String(cl.id) }),
+        el('td', { text: safeText(cl.job_id || '—') }),
+        el('td', { text: fmtDate(cl.created_at) }),
+        el('td', {}, el('a', {
+          href: '/api/cover-letter/' + cl.id + '/download',
+          target: '_blank',
+          class: 'btn btn-ghost small',
+          text: 'DOWNLOAD .txt',
+        })),
       ]));
     }
   }
@@ -1177,29 +1300,29 @@
   }
   async function loadPipeline() {
     if (!$('#kanban').children.length) bindPipelineBoard();
-    const r = await api.get('/api/applications', { silent: true });
-    const apps = (r.ok && (r.data || [])) || [];
-    state.applications = apps;
+    // Use the server-side board grouping (single round-trip, status buckets)
+    const r = await api.get('/api/applications/board', { silent: true });
+    const board = (r.ok && r.data) || {};
+    // Flatten for state.applications (some callers read this)
+    state.applications = Object.values(board).flat();
     for (const col of $$('#kanban .kanban-col')) {
       const body = $('.col-body', col);
       body.innerHTML = '';
-      $('.count', col).textContent = '0';
-    }
-    for (const app of apps) {
-      const col = $(`#kanban .kanban-col[data-status="${app.status || 'saved'}"]`);
-      if (!col) continue;
-      const body = $('.col-body', col);
-      const cnt = $('.count', col);
-      cnt.textContent = String(parseInt(cnt.textContent, 10) + 1);
-      const card = el('div', {
-        class: 'kan-card', draggable: 'true',
-        onclick: () => openApplicationModal(app),
-      }, [
-        el('div', { class: 'kc-title', text: safeText(app.title || ('app#' + app.id)) }),
-        el('div', { class: 'kc-meta', text: `${safeText(app.company || '')} · score ${app.score ?? '—'}` }),
-      ]);
-      card.addEventListener('dragstart', (e) => e.dataTransfer.setData('text/plain', String(app.id)));
-      body.appendChild(card);
+      const status = col.getAttribute('data-status');
+      const apps = board[status] || [];
+      $('.count', col).textContent = String(apps.length);
+      for (const app of apps) {
+        const card = el('div', {
+          class: 'kan-card', draggable: 'true',
+          'data-app-id': String(app.id),
+          onclick: () => openApplicationModal(app),
+        }, [
+          el('div', { class: 'kc-title', text: safeText(app.title || ('app#' + app.id)) }),
+          el('div', { class: 'kc-meta', text: `${safeText(app.company || '')} · score ${app.score ?? '—'}` }),
+        ]);
+        card.addEventListener('dragstart', (e) => e.dataTransfer.setData('text/plain', String(app.id)));
+        body.appendChild(card);
+      }
     }
   }
   function openApplicationModal(app) {
@@ -1224,17 +1347,41 @@
       body.appendChild(el('p', { class: 'muted small', text: 'Packet: ' + app.packet_path }));
     }
     m.classList.remove('hidden');
+    // Add view-packet button if a packet path was stored on the application.
+    if (app.packet_path) {
+      const viewBtn = el('button', { class: 'btn btn-secondary small', type: 'button',
+        onclick: () => viewPacketManifest(app.id) }, 'VIEW PACKET');
+      body.appendChild(viewBtn);
+    }
     $('#card-save-btn').onclick = async () => {
       const payload = {
         notes: $('#app-notes').value,
         application_url: $('#app-url').value || null,
       };
-      const f = $('#app-followup').value;
-      if (f) payload.next_followup_at = new Date(f).getTime() / 1000;
       const r = await api.patch('/api/applications/' + app.id, payload);
-      if (r.ok) { toast('Application updated.', 'success'); m.classList.add('hidden'); loadPipeline(); }
+      if (!r.ok) return;
+      // Use the dedicated followup endpoint when the date changed
+      const newF = $('#app-followup').value;
+      if (newF) {
+        const target = new Date(newF).getTime() / 1000;
+        const daysAhead = Math.max(1, Math.round((target - Date.now()/1000) / 86400));
+        await api.post('/api/applications/' + app.id + '/followup', { days: daysAhead });
+      }
+      toast('Application updated.', 'success');
+      m.classList.add('hidden');
+      loadPipeline();
     };
     $('#card-close-btn').onclick = () => m.classList.add('hidden');
+  }
+  async function viewPacketManifest(appId) {
+    const r = await api.get('/api/packet/' + appId + '/manifest', { silent: true });
+    if (!r.ok) { toast('No packet manifest found.', 'warn'); return; }
+    const d = r.data || {};
+    const files = d.files || [];
+    const lines = ['Packet dir: ' + (d.packet_dir || '—'), '', 'FILES:'];
+    files.forEach(f => lines.push('  · ' + (f.name || f.filename || String(f))));
+    showTextModal('Packet manifest', lines.join('\n'),
+      'Open files via /api/packet/' + appId + '/file/<filename>');
   }
 
   // ============================================================
@@ -1318,6 +1465,31 @@
   }
   function bindInbox() {
     $('#inbox-refresh').addEventListener('click', loadInbox);
+    const sweepBtn = $('#inbox-sweep');
+    if (sweepBtn) {
+      sweepBtn.addEventListener('click', async () => {
+        sweepBtn.disabled = true;
+        sweepBtn.textContent = 'SWEEPING…';
+        const r = await api.post('/api/email/sweep', {});
+        sweepBtn.disabled = false;
+        sweepBtn.textContent = 'SWEEP NOW';
+        if (r.ok) {
+          const d = r.data || {};
+          toast(`Sweep done · gmail=${(d.gmail?.processed ?? '–')} · imap=${(d.imap?.processed ?? '–')}`, 'success');
+          loadInbox();
+        }
+      });
+    }
+    // status banner using /api/email/status
+    api.get('/api/email/status', { silent: true }).then(r => {
+      const status = $('#inbox-status');
+      if (!status || !r.ok) return;
+      const d = r.data || {};
+      const gmail = d.gmail?.configured ? 'Gmail OK' : 'Gmail not configured';
+      const imap = d.imap?.configured ? 'IMAP OK' : 'IMAP not configured';
+      status.textContent = `${gmail} · ${imap}`;
+      status.classList.remove('hidden');
+    });
   }
 
   // ============================================================
@@ -1403,6 +1575,15 @@
     }
   }
   async function loadCalendarEvents() {
+    // Status banner via /api/calendar/status (Google OAuth state)
+    api.get('/api/calendar/status', { silent: true }).then(sr => {
+      const sb = $('#cal-status');
+      if (!sb || !sr.ok) return;
+      const d = sr.data || {};
+      const msg = d.configured ? 'Google Calendar connected.' : 'Google Calendar not connected — events save as .ics files locally.';
+      sb.textContent = msg;
+      sb.classList.remove('hidden');
+    });
     // Fetch the actual events list (the /status endpoint only reports OAuth state).
     const r = await api.get('/api/calendar/events', { silent: true });
     const body = $('#cal-events tbody');
@@ -1413,11 +1594,17 @@
       return;
     }
     for (const e of evs) {
+      const icsLink = el('a', {
+        href: '/api/calendar/' + e.id + '/ics',
+        target: '_blank',
+        class: 'btn btn-ghost small',
+        text: 'DOWNLOAD .ics',
+      });
       body.appendChild(el('tr', {}, [
         el('td', { text: fmtDate(e.start_at) }),
         el('td', { text: safeText(e.with || e.attendees || '—') }),
-        el('td', { text: safeText(e.job_id || '—') }),
-        el('td', { text: safeText(e.notes || '') }),
+        el('td', { text: safeText(e.application_id || '—') }),
+        el('td', {}, icsLink),
       ]));
     }
   }
@@ -1500,6 +1687,50 @@
     }
     refreshWeightTotal();
     loadApiKeys();
+    loadSchedulerStatus();
+    loadAutoApplyQueue();
+  }
+
+  async function loadSchedulerStatus() {
+    const r = await api.get('/api/scheduler/status', { silent: true });
+    const line = $('#scheduler-status-line');
+    const list = $('#scheduler-jobs');
+    if (!line || !list) return;
+    list.innerHTML = '';
+    if (!r.ok) {
+      line.textContent = 'Scheduler not running.';
+      return;
+    }
+    const d = r.data || {};
+    line.textContent = (d.running ? 'Running' : 'Stopped') +
+      ' · ' + (d.jobs?.length ?? 0) + ' jobs registered';
+    for (const j of (d.jobs || [])) {
+      list.appendChild(el('li', { text: `${j.id || ''} — next run ${j.next_run_time || j.next_run || 'unscheduled'}` }));
+    }
+    if (!(d.jobs || []).length) {
+      list.appendChild(el('li', { class: 'muted', text: 'No scheduled jobs. Saved searches and inbox sweep register on startup.' }));
+    }
+  }
+
+  async function loadAutoApplyQueue() {
+    const tbody = $('#aa-queue-table tbody');
+    if (!tbody) return;
+    const r = await api.get('/api/auto-apply/queue', { silent: true });
+    tbody.innerHTML = '';
+    const rows = (r.ok && (r.data || [])) || [];
+    if (!rows.length) {
+      tbody.appendChild(el('tr', {}, el('td', { colspan: 5, class: 'empty', text: 'No queued auto-apply packets.' })));
+      return;
+    }
+    for (const a of rows) {
+      tbody.appendChild(el('tr', {}, [
+        el('td', { text: String(a.id) }),
+        el('td', { text: safeText(a.title || a.job_title || '—') }),
+        el('td', { text: safeText(a.company || a.job_company || '—') }),
+        el('td', { text: a.score != null ? String(a.score) : '—' }),
+        el('td', { text: safeText(a.packet_path || '—') }),
+      ]));
+    }
   }
 
   // ----- API keys -----
@@ -1727,6 +1958,45 @@
     });
     $('#aa-halt').addEventListener('click', haltAutoApply);
     $('#halt-auto').addEventListener('click', haltAutoApply);
+
+    // Auto-apply: RUN NOW + queue refresh
+    const aaRunBtn = $('#aa-run');
+    if (aaRunBtn) {
+      aaRunBtn.addEventListener('click', async () => {
+        aaRunBtn.disabled = true;
+        aaRunBtn.textContent = 'RUNNING…';
+        const r = await api.post('/api/auto-apply/run', {});
+        aaRunBtn.disabled = false;
+        aaRunBtn.textContent = 'RUN NOW';
+        if (r.ok) {
+          const d = r.data || {};
+          toast(`Auto-apply: prepared ${d.prepared ?? 0}, skipped ${(d.skipped || []).length}.`, 'success');
+          loadAutoApplyQueue();
+        } else {
+          toast('Auto-apply refused: ' + (r.error || r.data?.reason || 'unknown'), 'warn');
+        }
+      });
+    }
+    const aaQRefresh = $('#aa-queue-refresh');
+    if (aaQRefresh) aaQRefresh.addEventListener('click', loadAutoApplyQueue);
+
+    // Scheduler controls
+    const schRefresh = $('#scheduler-refresh');
+    if (schRefresh) schRefresh.addEventListener('click', loadSchedulerStatus);
+    const schSweepNow = $('#scheduler-sweep-now');
+    if (schSweepNow) schSweepNow.addEventListener('click', async () => {
+      schSweepNow.disabled = true;
+      const r = await api.post('/api/scheduler/inbox-sweep', {});
+      schSweepNow.disabled = false;
+      if (r.ok) toast('Inbox sweep triggered.', 'success');
+    });
+    const schFollow = $('#scheduler-followups-now');
+    if (schFollow) schFollow.addEventListener('click', async () => {
+      schFollow.disabled = true;
+      const r = await api.post('/api/scheduler/followups', {});
+      schFollow.disabled = false;
+      if (r.ok) toast(`Followups: ${r.data?.due ?? 0} due, ${r.data?.notified ?? 0} notified.`, 'success');
+    });
 
     $('#export-data').addEventListener('click', async () => {
       const status = $('#data-status');

@@ -235,7 +235,12 @@
                 <option value="other">other</option>
               </select>
             </label>
-            <button class="btn btn-secondary" type="submit">INGEST URL</button>
+            <div class="form-actions">
+              <button class="btn btn-secondary" type="submit">INGEST URL</button>
+              <button class="btn btn-ghost" type="button" id="url-preview-btn">PREVIEW</button>
+              <span id="url-preview-status" class="status-line"></span>
+            </div>
+            <pre id="url-preview-out" class="codeblock hidden" style="max-height:280px;overflow:auto"></pre>
           </form>
 
           <hr class="rule" />
@@ -537,8 +542,12 @@
         <div class="form-actions">
           <button class="btn btn-primary"   id="jd-tailor">TAILOR RESUME</button>
           <button class="btn btn-secondary" id="jd-cover">COVER LETTER</button>
+          <button class="btn btn-secondary" id="jd-recruiter">RECRUITER MSG</button>
+          <button class="btn btn-secondary" id="jd-interview">INTERVIEW PREP</button>
           <button class="btn btn-secondary" id="jd-packet">BUILD PACKET</button>
           <button class="btn btn-ghost"     id="jd-save">SAVE TO PIPELINE</button>
+          <button class="btn btn-ghost"     id="jd-rescore">RESCORE</button>
+          <button class="btn btn-ghost"     id="jd-archive">ARCHIVE</button>
         </div>
       </section>
     </section>
@@ -558,8 +567,18 @@
           </header>
           <div class="table-wrap">
             <table class="data-table" id="resume-list">
-              <thead><tr><th>ID</th><th>TYPE</th><th>JOB</th><th>UPDATED</th><th>ACTIONS</th></tr></thead>
+              <thead><tr><th>ID</th><th>TYPE</th><th>JOB</th><th>UPDATED</th><th>DOWNLOAD</th></tr></thead>
               <tbody><tr><td colspan="5" class="empty">No resumes yet. Upload a master with NEW MASTER, or tailor one from a job.</td></tr></tbody>
+            </table>
+          </div>
+
+          <header class="card-head" style="margin-top: var(--s-5);">
+            <h3>Cover letters</h3>
+          </header>
+          <div class="table-wrap">
+            <table class="data-table" id="cover-letters-table">
+              <thead><tr><th>ID</th><th>JOB</th><th>CREATED</th><th>DOWNLOAD</th></tr></thead>
+              <tbody><tr><td colspan="4" class="empty">No cover letters yet. Generate one from JOB DETAIL → COVER LETTER.</td></tr></tbody>
             </table>
           </div>
         </section>
@@ -626,7 +645,10 @@ Select a resume to preview.
       <section class="card">
         <header class="card-head">
           <h3>Email events</h3>
-          <button class="btn btn-ghost small" id="inbox-refresh">REFRESH</button>
+          <div class="form-actions" style="margin:0;">
+            <button class="btn btn-secondary small" id="inbox-sweep">SWEEP NOW</button>
+            <button class="btn btn-ghost small" id="inbox-refresh">REFRESH</button>
+          </div>
         </header>
         <div class="table-wrap">
           <table class="data-table" id="inbox-table">
@@ -670,6 +692,8 @@ Select a resume to preview.
         <ul id="slot-list" class="bullets"></ul>
       </section>
 
+      <div id="cal-status" class="banner banner-muted hidden"></div>
+
       <section class="card">
         <header class="card-head">
           <h3>Upcoming events</h3>
@@ -677,7 +701,7 @@ Select a resume to preview.
         </header>
         <div class="table-wrap">
           <table class="data-table" id="cal-events">
-            <thead><tr><th>WHEN</th><th>WITH</th><th>JOB</th><th>NOTES</th></tr></thead>
+            <thead><tr><th>WHEN</th><th>WITH</th><th>JOB</th><th>ICS</th></tr></thead>
             <tbody><tr><td colspan="4" class="empty">No upcoming events. Connect Google Calendar in SETTINGS.</td></tr></tbody>
           </table>
         </div>
@@ -753,7 +777,36 @@ Select a resume to preview.
           <button class="btn btn-warn"      id="aa-enable">ENABLE AUTO-APPLY</button>
           <button class="btn btn-ghost"     id="aa-disable">DISABLE</button>
           <button class="btn btn-secondary" id="aa-halt">HALT NOW</button>
+          <button class="btn btn-secondary" id="aa-run">RUN NOW</button>
         </div>
+
+        <header class="card-head" style="margin-top: var(--s-5);">
+          <h3>Auto-apply review queue</h3>
+          <button class="btn btn-ghost small" id="aa-queue-refresh">REFRESH</button>
+        </header>
+        <div class="table-wrap">
+          <table class="data-table" id="aa-queue-table">
+            <thead><tr><th>APP&nbsp;ID</th><th>JOB</th><th>COMPANY</th><th>SCORE</th><th>PACKET</th></tr></thead>
+            <tbody><tr><td colspan="5" class="empty">No queued auto-apply packets.</td></tr></tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- ============ SCHEDULER ============ -->
+      <section class="card scheduler-card">
+        <header class="card-head">
+          <h3>Scheduler</h3>
+          <button class="btn btn-ghost small" id="scheduler-refresh">REFRESH</button>
+        </header>
+        <p id="scheduler-status-line" class="muted small">checking…</p>
+        <div class="form-actions">
+          <button class="btn btn-secondary small" id="scheduler-sweep-now">SWEEP INBOX NOW</button>
+          <button class="btn btn-secondary small" id="scheduler-followups-now">RUN FOLLOWUPS NOW</button>
+        </div>
+        <header class="card-head" style="margin-top: var(--s-4);">
+          <h3>Registered jobs</h3>
+        </header>
+        <ul id="scheduler-jobs" class="bullets"></ul>
       </section>
 
       <!-- ============ API KEYS ============ -->
