@@ -1,0 +1,13 @@
+fastapi>=0.110
+uvicorn[standard]>=0.27
+pydantic>=2.6
+python-multipart>=0.0.9
+python-jobspy>=1.1.82
+pdfminer.six>=20221105
+python-docx>=1.1.0
+beautifulsoup4>=4.12
+lxml>=4.9
+httpx>=0.27
+feedparser>=6.0
+apscheduler>=3.10
+python-dotenv>=1.0

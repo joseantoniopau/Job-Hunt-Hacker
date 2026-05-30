@@ -1,0 +1,15 @@
+services:
+  jhh:
+    build: .
+    container_name: job-hunt-hacker
+    ports:
+      - "8731:8731"
+    volumes:
+      - ./data:/app/data
+      - ./uploads:/app/uploads
+      - ./resumes:/app/resumes
+      - ./packets:/app/packets
+      - ./cache:/app/cache
+    env_file:
+      - .env
+    restart: unless-stopped

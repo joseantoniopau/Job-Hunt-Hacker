@@ -1,0 +1,48 @@
+# secrets
+.env
+.env.local
+
+# python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# data / caches / user content
+cache/*
+!cache/.gitkeep
+uploads/*
+!uploads/.gitkeep
+resumes/*
+!resumes/.gitkeep
+packets/*
+!packets/.gitkeep
+data/jhh.db
+data/jhh.db-journal
+data/jhh.db-wal
+data/jhh.db-shm
+data/user_profile.json
+data/career_vault.json
+
+# os
+.DS_Store
+Thumbs.db
+
+# editor
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# build
+dist/
+build/
+*.egg
+
+# node (in case anyone tries)
+node_modules/

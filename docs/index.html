@@ -1,0 +1,317 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Job Hunt Hacker — find better jobs, tailor honestly, apply with discipline</title>
+  <meta name="description"
+        content="A local Claude Code skill that searches live job boards, scores matches against your verified Career Evidence Vault, and writes tailored resumes and cover letters grounded only in real evidence." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Serif:wght@400;600;700&display=swap"
+    rel="stylesheet"
+  />
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+
+  <!-- ===== sibling pill nav (sister projects) ===== -->
+  <nav class="siblings" aria-label="Sister projects">
+    <a class="pill pill-current">JOB HUNT HACKER</a>
+    <a class="pill" href="https://github.com/joseantoniopau/Hotel-Hacker">HOTEL HACKER</a>
+    <a class="pill" href="https://github.com/joseantoniopau/Flight-Hacker">FLIGHT HACKER</a>
+  </nav>
+
+  <!-- ===== HERO ===== -->
+  <header class="hero">
+    <p class="kicker">A local skill, not a SaaS</p>
+    <h1>JOB&nbsp;HUNT&nbsp;HACKER</h1>
+    <p class="hero-tagline">
+      Find better jobs. Tailor honestly. Apply with discipline.
+    </p>
+    <p class="hero-sub">
+      A Claude Code skill that ingests your career evidence, searches live job
+      boards, scores matches against what you can actually prove, and writes
+      tailored resumes and cover letters that never invent a single fact.
+    </p>
+    <div class="hero-actions">
+      <a class="btn btn-primary" href="https://github.com/joseantoniopau/Job-Hunt-Hacker">VIEW ON GITHUB</a>
+      <a class="btn btn-ghost" href="#install">READ THE INSTALL GUIDE</a>
+    </div>
+    <div class="hero-meta">
+      <span class="pill pill-blue">MIT licensed</span>
+      <span class="pill pill-green">Runs offline</span>
+      <span class="pill pill-warn">Auto-apply OFF by default</span>
+    </div>
+  </header>
+
+  <main>
+
+    <!-- ===== WHAT IS IT ===== -->
+    <section class="block">
+      <h2>What is Job Hunt Hacker?</h2>
+      <p>
+        Job Hunt Hacker is a small, local tool that runs on your computer. It
+        helps you look for jobs the way a careful, honest friend would: by
+        reading what you have actually done, finding postings that match, and
+        writing application materials that mirror the job's language only where
+        you have evidence to back it up.
+      </p>
+      <p>
+        It is a single command to install, runs offline by default, and stores
+        all of your career history in a local SQLite database that you fully
+        control. No cloud account. No telemetry. No charge.
+      </p>
+      <p>
+        You can use it through Claude Code on your terminal, or through the
+        brutalist single-page web UI it serves at
+        <code>http://127.0.0.1:8731</code>.
+      </p>
+    </section>
+
+    <!-- ===== WHAT IT DOES ===== -->
+    <section class="block">
+      <h2>What it does</h2>
+      <div class="grid grid-3">
+        <article class="card">
+          <h3>Search live boards</h3>
+          <p>Indeed, Glassdoor, Google, LinkedIn (via JobSpy), plus official APIs for Greenhouse, Lever, Ashby, Remotive, WeWorkRemotely.</p>
+        </article>
+        <article class="card">
+          <h3>Score with your vault</h3>
+          <p>Every posting is matched against your Career Evidence Vault — skills, projects, dates, claims you uploaded — and gets a 0–100 score with reasons.</p>
+        </article>
+        <article class="card">
+          <h3>Tailor resumes honestly</h3>
+          <p>Bullets are rewritten to match the post, but only where your evidence supports them. Anything else becomes a gap, not a lie.</p>
+        </article>
+        <article class="card">
+          <h3>Draft cover letters</h3>
+          <p>Each paragraph traces back to a verified source. You see the provenance map before anything ships.</p>
+        </article>
+        <article class="card">
+          <h3>Track the pipeline</h3>
+          <p>Drag-and-drop kanban from Saved &rarr; Prepared &rarr; Applied &rarr; Replied &rarr; Interview &rarr; Offer.</p>
+        </article>
+        <article class="card">
+          <h3>Prep for interviews</h3>
+          <p>Practice questions tailored to the role, with talking points drawn from your evidence and gaps you should rehearse.</p>
+        </article>
+        <article class="card">
+          <h3>Classify recruiter inbox</h3>
+          <p>Optional IMAP/Gmail integration sorts recruiter messages by type and drafts replies for you to send manually.</p>
+        </article>
+        <article class="card">
+          <h3>Suggest interview slots</h3>
+          <p>You set a weekly availability grid. The tool generates polite slot suggestions for recruiters when asked.</p>
+        </article>
+      </div>
+    </section>
+
+    <!-- ===== WHAT IT DOES NOT DO ===== -->
+    <section class="block">
+      <h2>What it does NOT do</h2>
+      <div class="grid grid-2 no-list">
+        <article class="card neg">
+          <h3>It does not invent credentials</h3>
+          <p>If you didn't claim a degree, certification, employer, title, or tool, the engine will not put it on a resume. Ever.</p>
+        </article>
+        <article class="card neg">
+          <h3>It does not fabricate metrics</h3>
+          <p>"Improved performance by 40%" only appears if you uploaded evidence of that 40%. Otherwise it's flagged as a gap.</p>
+        </article>
+        <article class="card neg">
+          <h3>It does not bypass platform TOS</h3>
+          <p>No login bypass, no CAPTCHA solving, no proxy rotation, no headless browser farms. Sites that require login stay manual.</p>
+        </article>
+        <article class="card neg">
+          <h3>It does not auto-submit on your behalf</h3>
+          <p>Auto-apply is OFF by default and limited to platforms whose own API permits it. You always control submission.</p>
+        </article>
+        <article class="card neg">
+          <h3>It does not edit your LinkedIn</h3>
+          <p>It reads pasted text or your export. It never logs in, posts, or modifies anything on LinkedIn for you.</p>
+        </article>
+        <article class="card neg">
+          <h3>It does not phone home</h3>
+          <p>No analytics, no telemetry, no remote logging. The tool runs entirely on your machine.</p>
+        </article>
+      </div>
+    </section>
+
+    <!-- ===== VAULT ===== -->
+    <section class="block">
+      <h2>The Career Evidence Vault</h2>
+      <p>
+        The Vault is the heart of the tool. It is a structured store of every
+        verifiable claim about your career, pulled from sources you chose to
+        share: past resumes, LinkedIn exports, GitHub repos, portfolio pages,
+        certifications, transcripts, project notes.
+      </p>
+
+      <div class="vault-diagram big">
+        <div class="vdx-box">RESUMES (PDF, DOCX, MD)</div>
+        <div class="vdx-box">LINKEDIN EXPORT</div>
+        <div class="vdx-box">GITHUB REPOS</div>
+        <div class="vdx-box">PORTFOLIO + BLOG</div>
+        <div class="vdx-box">CERTIFICATIONS</div>
+        <div class="vdx-arrow">&rarr;</div>
+        <div class="vdx-vault">CAREER<br/>EVIDENCE<br/>VAULT</div>
+        <div class="vdx-arrow">&rarr;</div>
+        <div class="vdx-out">
+          <div class="vdx-box">SCORED MATCHES</div>
+          <div class="vdx-box">TAILORED RESUMES</div>
+          <div class="vdx-box">HONEST COVER LETTERS</div>
+        </div>
+      </div>
+
+      <p>
+        Every claim in the Vault is tagged with confidence, type, and source.
+        You can verify, edit, or disable each one. When the tailoring engine
+        writes a sentence, it stores a provenance map back to the exact Vault
+        claims that justify it. If it can't, the sentence doesn't ship.
+      </p>
+    </section>
+
+    <!-- ===== INSTALL ===== -->
+    <section class="block" id="install">
+      <h2>Five-minute install</h2>
+      <p>You need Python 3.10+ and a terminal. That's it.</p>
+      <pre class="codeblock">git clone https://github.com/joseantoniopau/Job-Hunt-Hacker.git
+cd Job-Hunt-Hacker
+./install.sh
+./run.sh</pre>
+      <p>
+        Open <a href="http://127.0.0.1:8731"><code>http://127.0.0.1:8731</code></a>
+        in your browser. You'll see the brutalist UI; complete SETUP first,
+        upload some evidence in VAULT, then run your first search from
+        DASHBOARD.
+      </p>
+      <p class="muted small">
+        Optional: add API keys in <code>.env</code> for richer search
+        (SerpAPI, GitHub) or smarter tailoring (Anthropic, OpenAI, or local
+        Ollama). The tool works without any of them.
+      </p>
+    </section>
+
+    <!-- ===== HONESTY ===== -->
+    <section class="block">
+      <h2>How tailoring stays honest</h2>
+      <p>
+        Every generated artifact comes with two things attached: a
+        <strong>provenance map</strong> and an <strong>honesty report</strong>.
+      </p>
+      <ul class="bullets">
+        <li><strong>Provenance map</strong> — each bullet, paragraph, and skill listed in the output points back to one or more EvidenceSource rows in your Vault. You can audit every claim.</li>
+        <li><strong>Honesty report</strong> — counts of facts used, keywords added, keywords excluded as unsupported, and explicit gaps flagged. No vague "looks good"; gaps are surfaced loudly.</li>
+        <li>If a job posting requires <em>Python</em> and you have no Python evidence, the tool refuses to add it. It suggests either uploading a project as new evidence or leaving it as a gap.</li>
+        <li>You can ask the assistant to be more aggressive about keyword inclusion. It will still refuse to invent dates, employers, titles, certifications, or numbers it cannot trace.</li>
+      </ul>
+    </section>
+
+    <!-- ===== COMPLIANCE ===== -->
+    <section class="block">
+      <h2>Compliance &amp; responsibility</h2>
+      <div class="card warn-card">
+        <h3>Scraping risk</h3>
+        <p>
+          We use the JobSpy library to fetch postings from LinkedIn, Indeed,
+          and Glassdoor. These platforms generally prohibit automated scraping
+          in their terms. The tool surfaces each of those sources with a
+          <span class="badge badge-warn">GRAY</span> badge and recommends
+          assisted-apply only.
+        </p>
+        <h3>Auto-apply guardrails</h3>
+        <p>
+          Auto-apply is OFF by default. To enable it you must explicitly
+          acknowledge the risk, set a daily cap, and a minimum score. It is
+          restricted to sources whose own policies permit automation
+          (Greenhouse, Lever, Ashby). LinkedIn, Indeed, and Glassdoor are
+          never auto-applied to.
+        </p>
+        <h3>Kill switch</h3>
+        <p>
+          A single button or <code>POST /api/auto-apply/halt</code> disables
+          everything immediately, including any scheduled runs.
+        </p>
+      </div>
+    </section>
+
+    <!-- ===== FAQ ===== -->
+    <section class="block">
+      <h2>FAQ</h2>
+      <div class="faq">
+
+        <details>
+          <summary>How much does this cost?</summary>
+          <p>Nothing. It's MIT-licensed and runs on your laptop. If you choose to plug in an Anthropic or OpenAI API key for smarter tailoring, you pay those providers directly. Default mode uses templated fallback that costs zero.</p>
+        </details>
+
+        <details>
+          <summary>Is my data private?</summary>
+          <p>Yes. Every byte you upload — resumes, LinkedIn exports, claims, generated drafts — stays in a local SQLite database (<code>data/jhh.db</code>) on your machine. No analytics, no telemetry, no remote logging. The only outbound traffic happens when you explicitly call search adapters or LLM providers you configured yourself.</p>
+        </details>
+
+        <details>
+          <summary>Can I share this with friends?</summary>
+          <p>Yes, please do. It's a public skill under MIT. The whole point is that career-search tooling should not be a paid SaaS. Each person installs their own copy; nobody's data mixes.</p>
+        </details>
+
+        <details>
+          <summary>What if I don't have any API keys?</summary>
+          <p>The app runs offline with safe defaults. Templated tailoring still produces honest, evidence-grounded output — it's just less fluent than what a hosted model would generate. You can add keys later in <code>.env</code> and the tool picks them up on next start.</p>
+        </details>
+
+        <details>
+          <summary>Will this edit or post to my LinkedIn?</summary>
+          <p>No, never. It reads pasted text or an export file. It does not log in, post, message, follow, or modify anything on LinkedIn. The same applies to every other platform.</p>
+        </details>
+
+        <details>
+          <summary>Can multiple people use the same install?</summary>
+          <p>The tool is designed as a personal skill: one local install per person. Two people sharing a Vault would mix their evidence, which would break the honesty guarantee. Each user should clone their own copy.</p>
+        </details>
+
+        <details>
+          <summary>How do I back up my data?</summary>
+          <p>Copy the <code>data/</code> and <code>uploads/</code> directories. The Settings page also has a one-click "Export all data" button that bundles your Vault, resumes, and applications into a JSON archive.</p>
+        </details>
+
+        <details>
+          <summary>How do I uninstall?</summary>
+          <p>Stop the server (Ctrl+C in the terminal where <code>./run.sh</code> is running), then delete the <code>Job-Hunt-Hacker</code> directory. There's nothing global to remove. If you symlinked it into <code>~/.claude/skills/</code>, remove that symlink too.</p>
+        </details>
+
+      </div>
+    </section>
+
+    <!-- ===== ROADMAP ===== -->
+    <section class="block">
+      <h2>Roadmap</h2>
+      <ol class="roadmap">
+        <li><strong>Phase 1 — Vault.</strong> Local evidence ingest from resumes, LinkedIn, GitHub, URLs, free text.</li>
+        <li><strong>Phase 2 — Search.</strong> Multi-source job adapters with dedupe and per-source policies.</li>
+        <li><strong>Phase 3 — Scoring.</strong> Weighted match against vault evidence; gap and contradiction detection.</li>
+        <li><strong>Phase 4 — Tailoring.</strong> Resume + cover letter generation with provenance and honesty reports.</li>
+        <li><strong>Phase 5 — Pipeline.</strong> Kanban tracking, packet building, follow-up reminders.</li>
+        <li><strong>Phase 6 — Inbox &amp; Calendar.</strong> Recruiter email classification, slot suggestion, never auto-send.</li>
+        <li><strong>Phase 7 — Guarded auto-apply.</strong> API-only, opt-in, kill switch, audit log.</li>
+      </ol>
+    </section>
+
+  </main>
+
+  <footer class="site-footer">
+    <p>
+      <a href="https://github.com/joseantoniopau/Job-Hunt-Hacker">GitHub</a> &middot;
+      MIT licensed &middot; built as a public skill — share freely.
+    </p>
+    <p class="muted small">
+      Sister projects: <a href="https://github.com/joseantoniopau/Hotel-Hacker">Hotel Hacker</a> &middot;
+      <a href="https://github.com/joseantoniopau/Flight-Hacker">Flight Hacker</a>
+    </p>
+  </footer>
+
+</body>
+</html>

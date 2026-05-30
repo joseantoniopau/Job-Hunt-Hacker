@@ -1,0 +1,80 @@
+{
+  "jobspy": {
+    "display_name": "JobSpy (Indeed/Glassdoor/Google/LinkedIn scrape)",
+    "official_api": false,
+    "scraping": true,
+    "apply_automation_allowed": false,
+    "recommended_mode": "research",
+    "risk_level": "GRAY",
+    "notes": "Scraping major boards may violate TOS. Use proxies for LinkedIn. Default to assisted-apply."
+  },
+  "remoteintech": {
+    "display_name": "Remote In Tech company directory",
+    "official_api": false,
+    "scraping": false,
+    "apply_automation_allowed": false,
+    "recommended_mode": "research",
+    "risk_level": "LEGAL",
+    "notes": "Company seed list, ~880 companies. Not a job feed — links to career pages."
+  },
+  "greenhouse": {
+    "display_name": "Greenhouse public job board API",
+    "official_api": true,
+    "scraping": false,
+    "apply_automation_allowed": false,
+    "recommended_mode": "assisted",
+    "risk_level": "LEGAL",
+    "notes": "Public API. Apply through company site; do not automate submissions."
+  },
+  "lever": {
+    "display_name": "Lever public postings API",
+    "official_api": true,
+    "scraping": false,
+    "apply_automation_allowed": false,
+    "recommended_mode": "assisted",
+    "risk_level": "LEGAL",
+    "notes": "Public API. Apply through company site."
+  },
+  "ashby": {
+    "display_name": "Ashby public job board API",
+    "official_api": true,
+    "scraping": false,
+    "apply_automation_allowed": false,
+    "recommended_mode": "assisted",
+    "risk_level": "LEGAL",
+    "notes": "Public API. Apply through company site."
+  },
+  "remotive": {
+    "display_name": "Remotive remote jobs API",
+    "official_api": true,
+    "scraping": false,
+    "apply_automation_allowed": false,
+    "recommended_mode": "assisted",
+    "risk_level": "LEGAL"
+  },
+  "wwr": {
+    "display_name": "We Work Remotely RSS",
+    "official_api": true,
+    "scraping": false,
+    "apply_automation_allowed": false,
+    "recommended_mode": "assisted",
+    "risk_level": "LEGAL"
+  },
+  "google_jobs": {
+    "display_name": "Google Jobs via SerpApi/SearchAPI",
+    "official_api": true,
+    "scraping": false,
+    "apply_automation_allowed": false,
+    "recommended_mode": "assisted",
+    "risk_level": "LEGAL",
+    "notes": "Requires SERPAPI_API_KEY or SEARCHAPI_API_KEY."
+  },
+  "custom_rss": {
+    "display_name": "User-defined RSS feeds",
+    "official_api": true,
+    "scraping": false,
+    "apply_automation_allowed": false,
+    "recommended_mode": "assisted",
+    "risk_level": "LEGAL"
+  }
+}

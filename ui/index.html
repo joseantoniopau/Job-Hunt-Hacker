@@ -1,0 +1,709 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>JOB HUNT HACKER</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Serif:wght@400;600;700&display=swap"
+    rel="stylesheet"
+  />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+
+  <!-- =========== TOP BAR =========== -->
+  <header class="topbar" role="banner">
+    <div class="topbar-inner">
+      <a class="brand" href="#landing" aria-label="Job Hunt Hacker home">
+        <span class="brand-mark">JHH</span>
+        <span class="brand-name">JOB&nbsp;HUNT&nbsp;HACKER</span>
+      </a>
+      <nav class="tabs" role="navigation" aria-label="Main">
+        <a href="#landing"   data-tab="landing">LANDING</a>
+        <a href="#setup"     data-tab="setup">SETUP</a>
+        <a href="#vault"     data-tab="vault">VAULT</a>
+        <a href="#dashboard" data-tab="dashboard">DASHBOARD</a>
+        <a href="#resume"    data-tab="resume">RESUME&nbsp;LAB</a>
+        <a href="#pipeline"  data-tab="pipeline">PIPELINE</a>
+        <a href="#inbox"     data-tab="inbox">INBOX</a>
+        <a href="#calendar"  data-tab="calendar">CALENDAR</a>
+        <a href="#settings"  data-tab="settings">SETTINGS</a>
+      </nav>
+      <div class="topbar-right">
+        <span id="mode-pill" class="pill pill-blue" title="Default mode">MODE: ASSISTED</span>
+        <span id="health-pill" class="pill pill-muted" title="Server health">CHECKING</span>
+      </div>
+    </div>
+    <div id="compliance-banner" class="compliance-banner hidden" role="alert">
+      AUTO-APPLY IS ENABLED — automated submission may violate platform TOS. You are responsible.
+      <button id="halt-auto" class="btn btn-warn small">HALT AUTO-APPLY</button>
+    </div>
+  </header>
+
+  <!-- toasts -->
+  <div id="toasts" class="toasts" aria-live="polite" aria-atomic="true"></div>
+
+  <main class="main">
+
+    <!-- ================== LANDING ================== -->
+    <section class="page" data-page="landing">
+      <div class="hero">
+        <p class="kicker">A skill, not a SaaS.</p>
+        <h1 class="hero-title">JOB&nbsp;HUNT&nbsp;HACKER</h1>
+        <p class="hero-tagline">
+          Find better jobs. Tailor honestly. Apply with discipline.
+        </p>
+        <div class="hero-actions">
+          <a class="btn btn-primary" href="#setup">START SETUP</a>
+          <a class="btn btn-ghost" href="#dashboard">OPEN DASHBOARD</a>
+        </div>
+      </div>
+
+      <div class="mode-grid">
+        <article class="card mode-card">
+          <header><span class="mode-num">01</span><h3>RESEARCH</h3></header>
+          <p>Search, score, study. Nothing is sent anywhere. Best for passive browsing or learning the market.</p>
+          <ul class="bullets">
+            <li>Multi-source search (LinkedIn, Indeed, Glassdoor, Google, Greenhouse, Lever, Ashby, Remotive)</li>
+            <li>Evidence-backed match scores</li>
+            <li>No submissions, no outreach</li>
+          </ul>
+        </article>
+        <article class="card mode-card mode-default">
+          <header><span class="mode-num">02</span><h3>ASSISTED <span class="badge badge-blue">DEFAULT</span></h3></header>
+          <p>Search + score + tailor + build application packets. You click the actual apply button on each site.</p>
+          <ul class="bullets">
+            <li>Tailored resume + cover letter per job</li>
+            <li>Provenance for every claim</li>
+            <li>Honesty report flags any gap</li>
+          </ul>
+        </article>
+        <article class="card mode-card mode-warn">
+          <header><span class="mode-num">03</span><h3>AUTO <span class="badge badge-warn">TOS RISK</span></h3></header>
+          <p>Programmatic submission via official APIs only (Greenhouse/Lever/Ashby). Off by default. Requires explicit opt-in.</p>
+          <ul class="bullets">
+            <li>Allowlist sources only</li>
+            <li>Daily cap + minimum score</li>
+            <li>Single-button kill switch</li>
+          </ul>
+        </article>
+      </div>
+
+      <section class="card vault-explainer">
+        <h2>The Career Evidence Vault</h2>
+        <p>
+          Every claim that appears in a tailored resume is traceable to a verified
+          source: a past resume, a LinkedIn export, a GitHub repo, a portfolio
+          page, an uploaded doc. If the engine cannot tie a sentence to evidence,
+          it does not write the sentence — it flags a gap instead.
+        </p>
+        <div class="vault-diagram">
+          <div class="vdx-box">RESUMES</div>
+          <div class="vdx-box">LINKEDIN</div>
+          <div class="vdx-box">GITHUB</div>
+          <div class="vdx-box">PORTFOLIO</div>
+          <div class="vdx-arrow">&rarr;</div>
+          <div class="vdx-vault">CAREER<br/>EVIDENCE<br/>VAULT</div>
+          <div class="vdx-arrow">&rarr;</div>
+          <div class="vdx-box">TAILORED<br/>RESUME</div>
+        </div>
+      </section>
+
+      <section class="card compliance-note">
+        <h3>Compliance, in plain English</h3>
+        <ul class="bullets">
+          <li>We never bypass logins, CAPTCHAs, or rate limits.</li>
+          <li>Scraping sources (LinkedIn / Indeed / Glassdoor) are marked <strong>GRAY</strong>; we render assisted packets and you submit yourself.</li>
+          <li>Official APIs (Greenhouse / Lever / Ashby / Remotive RSS) are marked <strong>LEGAL</strong> and may be used for auto-apply once you opt in.</li>
+          <li>You can delete every byte of your data from Settings.</li>
+        </ul>
+      </section>
+    </section>
+
+    <!-- ================== SETUP ================== -->
+    <section class="page" data-page="setup">
+      <h2 class="page-title">01 / SETUP</h2>
+      <p class="page-sub">Tell the tool who you are and what you want. None of this leaves your machine.</p>
+
+      <form id="profile-form" class="card grid-form" novalidate>
+        <h3>Profile</h3>
+        <label>Name <input name="name" type="text" autocomplete="name" /></label>
+        <label>Email <input name="email" type="email" autocomplete="email" /></label>
+        <label>Phone <input name="phone" type="tel" autocomplete="tel" /></label>
+        <label>Location <input name="location" type="text" placeholder="City, ST" /></label>
+
+        <label>LinkedIn URL <input name="linkedin_url" type="url" /></label>
+        <label>GitHub URL <input name="github_url" type="url" /></label>
+        <label>Portfolio URL <input name="portfolio_url" type="url" /></label>
+        <label>Currency
+          <select name="currency">
+            <option>USD</option><option>EUR</option><option>GBP</option>
+            <option>CAD</option><option>AUD</option><option>CHF</option>
+          </select>
+        </label>
+
+        <label class="full">Target titles <em>(comma separated)</em>
+          <input name="target_titles" type="text" placeholder="Senior Product Manager, Group PM" />
+        </label>
+        <label class="full">Target keywords
+          <input name="target_keywords" type="text" placeholder="b2b saas, growth, product-led" />
+        </label>
+        <label class="full">Excluded keywords
+          <input name="excluded_keywords" type="text" placeholder="crypto, web3" />
+        </label>
+        <label class="full">Preferred locations
+          <input name="preferred_locations" type="text" placeholder="Remote-US, San Francisco, NYC" />
+        </label>
+
+        <label>Remote preference
+          <select name="remote_preference">
+            <option value="">—</option>
+            <option>remote</option>
+            <option>hybrid</option>
+            <option>onsite</option>
+            <option>any</option>
+          </select>
+        </label>
+        <label>Default mode
+          <select name="mode">
+            <option value="">(server default)</option>
+            <option>research</option>
+            <option>assisted</option>
+            <option>auto</option>
+          </select>
+        </label>
+        <label>Minimum salary <input name="minimum_salary" type="number" min="0" step="1000" /></label>
+        <label>Preferred salary <input name="preferred_salary" type="number" min="0" step="1000" /></label>
+
+        <label class="full">Employment types
+          <div class="check-grid" data-name="employment_types">
+            <label><input type="checkbox" value="full_time"/> Full-time</label>
+            <label><input type="checkbox" value="part_time"/> Part-time</label>
+            <label><input type="checkbox" value="contract"/> Contract</label>
+            <label><input type="checkbox" value="internship"/> Internship</label>
+            <label><input type="checkbox" value="freelance"/> Freelance</label>
+          </div>
+        </label>
+
+        <label class="full">Seniority targets
+          <div class="check-grid" data-name="seniority_targets">
+            <label><input type="checkbox" value="entry"/> Entry</label>
+            <label><input type="checkbox" value="mid"/> Mid</label>
+            <label><input type="checkbox" value="senior"/> Senior</label>
+            <label><input type="checkbox" value="staff"/> Staff</label>
+            <label><input type="checkbox" value="principal"/> Principal</label>
+            <label><input type="checkbox" value="manager"/> Manager</label>
+            <label><input type="checkbox" value="director"/> Director</label>
+            <label><input type="checkbox" value="exec"/> Exec</label>
+          </div>
+        </label>
+
+        <label class="full">Industries
+          <input name="industries" type="text" placeholder="fintech, devtools, healthcare" />
+        </label>
+        <label class="full">Excluded industries
+          <input name="excluded_industries" type="text" placeholder="defense, gambling" />
+        </label>
+        <label class="full">Preferred companies
+          <input name="preferred_companies" type="text" placeholder="Stripe, Linear, Anthropic" />
+        </label>
+        <label class="full">Excluded companies
+          <input name="excluded_companies" type="text" placeholder="" />
+        </label>
+        <label class="full">Visa preferences
+          <input name="visa_preferences" type="text" placeholder="US-citizen, EU-work-permit" />
+        </label>
+
+        <div class="form-actions full">
+          <button type="submit" class="btn btn-primary">SAVE PROFILE</button>
+          <button type="button" id="profile-reload" class="btn btn-ghost">RELOAD</button>
+          <span id="profile-status" class="status-line"></span>
+        </div>
+      </form>
+
+      <div class="two-col">
+        <section class="card">
+          <h3>Upload Evidence</h3>
+          <p class="muted">Drop resumes, cover letters, transcripts, certifications, project write-ups. PDF / DOCX / MD / TXT.</p>
+          <div id="dropzone" class="dropzone" tabindex="0" aria-label="Upload evidence files">
+            <strong>DROP FILES HERE</strong>
+            <span>or click to choose</span>
+            <input type="file" id="evidence-files" multiple
+                   accept=".pdf,.docx,.doc,.md,.txt,.rtf,.html" hidden />
+          </div>
+          <ul id="upload-list" class="upload-list"></ul>
+        </section>
+
+        <section class="card">
+          <h3>Ingest URLs &amp; Text</h3>
+          <form id="url-form" class="stack">
+            <label>URL <input name="url" type="url" placeholder="https://yourblog.com/post" required /></label>
+            <label>Source type
+              <select name="source_type">
+                <option value="">auto-detect</option>
+                <option value="portfolio">portfolio</option>
+                <option value="blog">blog</option>
+                <option value="github_profile">github_profile</option>
+                <option value="github_repo">github_repo</option>
+                <option value="article">article</option>
+                <option value="other">other</option>
+              </select>
+            </label>
+            <button class="btn btn-secondary" type="submit">INGEST URL</button>
+          </form>
+
+          <hr class="rule" />
+
+          <form id="github-form" class="stack">
+            <label>GitHub profile URL
+              <input name="profile_url" type="url" placeholder="https://github.com/you" />
+            </label>
+            <label>Specific repos <em>(one per line)</em>
+              <textarea name="repo_urls" rows="3" placeholder="https://github.com/you/foo"></textarea>
+            </label>
+            <button class="btn btn-secondary" type="submit">INGEST GITHUB</button>
+          </form>
+
+          <hr class="rule" />
+
+          <form id="linkedin-form" class="stack">
+            <label>Paste LinkedIn export text
+              <textarea name="text" rows="6" placeholder="Copy-paste profile contents…"></textarea>
+            </label>
+            <label>or LinkedIn URL <input name="url" type="url" /></label>
+            <button class="btn btn-secondary" type="submit">INGEST LINKEDIN</button>
+          </form>
+        </section>
+      </div>
+    </section>
+
+    <!-- ================== VAULT ================== -->
+    <section class="page" data-page="vault">
+      <h2 class="page-title">02 / CAREER EVIDENCE VAULT</h2>
+      <p class="page-sub">Every claim the tailoring engine can use, traced to a source.</p>
+
+      <div id="vault-contradictions" class="banner banner-warn hidden"></div>
+
+      <div class="kpi-row" id="vault-kpis">
+        <div class="kpi"><span class="kpi-num" data-k="evidence_sources">—</span><span class="kpi-label">SOURCES</span></div>
+        <div class="kpi"><span class="kpi-num" data-k="career_claims">—</span><span class="kpi-label">CLAIMS</span></div>
+        <div class="kpi"><span class="kpi-num" data-k="verified_claims">—</span><span class="kpi-label">VERIFIED</span></div>
+        <div class="kpi"><span class="kpi-num" data-k="resume_documents">—</span><span class="kpi-label">RESUMES</span></div>
+      </div>
+
+      <section class="card">
+        <header class="card-head">
+          <h3>Sources</h3>
+          <button class="btn btn-ghost small" id="vault-refresh">REFRESH</button>
+        </header>
+        <div class="table-wrap">
+          <table class="data-table" id="vault-sources">
+            <thead>
+              <tr><th>ID</th><th>TYPE</th><th>TITLE</th><th>ADDED</th><th>CLAIMS</th><th>ACTIONS</th></tr>
+            </thead>
+            <tbody><tr><td colspan="6" class="empty">No data yet — ingest evidence from SETUP.</td></tr></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="card">
+        <header class="card-head">
+          <h3>Claims</h3>
+          <div class="filters">
+            <label>type
+              <select id="claim-type">
+                <option value="">all</option>
+                <option>experience</option>
+                <option>education</option>
+                <option>skill</option>
+                <option>project</option>
+                <option>certification</option>
+                <option>achievement</option>
+              </select>
+            </label>
+            <label>verified
+              <select id="claim-verified">
+                <option value="">all</option>
+                <option value="1">verified</option>
+                <option value="0">unverified</option>
+              </select>
+            </label>
+            <label>resume-safe
+              <select id="claim-allowed">
+                <option value="">all</option>
+                <option value="1">allowed</option>
+                <option value="0">disabled</option>
+              </select>
+            </label>
+            <button class="btn btn-secondary small" id="claims-scan">SCAN FOR CONTRADICTIONS</button>
+          </div>
+        </header>
+        <div class="table-wrap">
+          <table class="data-table" id="vault-claims">
+            <thead>
+              <tr><th>ID</th><th>TYPE</th><th>CLAIM</th><th>CONF</th><th>VER</th><th>SAFE</th><th>ACTIONS</th></tr>
+            </thead>
+            <tbody><tr><td colspan="7" class="empty">—</td></tr></tbody>
+          </table>
+        </div>
+      </section>
+    </section>
+
+    <!-- ================== DASHBOARD ================== -->
+    <section class="page" data-page="dashboard">
+      <h2 class="page-title">03 / DASHBOARD</h2>
+      <p class="page-sub">Search live boards. Score against your vault.</p>
+
+      <form id="search-form" class="card search-form">
+        <div class="grid-form">
+          <label class="full">Query
+            <input name="query" type="text" required placeholder="Senior Product Manager" />
+          </label>
+          <label>Location <input name="location" type="text" placeholder="San Francisco, CA" /></label>
+          <label>Country
+            <select name="country">
+              <option>usa</option><option>uk</option><option>canada</option>
+              <option>germany</option><option>france</option><option>spain</option>
+              <option>netherlands</option><option>australia</option><option>worldwide</option>
+            </select>
+          </label>
+          <label>Results / site <input name="results_per_site" type="number" value="25" min="1" max="100" /></label>
+          <label>Hours old <input name="hours_old" type="number" value="168" min="1" /></label>
+          <label>Min score <input name="min_score" type="number" min="0" max="100" placeholder="—" /></label>
+          <label><input name="is_remote" type="checkbox" /> Remote only</label>
+          <label class="full">Sites
+            <div class="check-grid" data-name="sites">
+              <label><input type="checkbox" value="indeed" checked/> indeed</label>
+              <label><input type="checkbox" value="glassdoor" checked/> glassdoor</label>
+              <label><input type="checkbox" value="google" checked/> google</label>
+              <label><input type="checkbox" value="linkedin"/> linkedin</label>
+              <label><input type="checkbox" value="greenhouse"/> greenhouse</label>
+              <label><input type="checkbox" value="lever"/> lever</label>
+              <label><input type="checkbox" value="ashby"/> ashby</label>
+              <label><input type="checkbox" value="remotive"/> remotive</label>
+              <label><input type="checkbox" value="wwr"/> wwr</label>
+              <label><input type="checkbox" value="rss"/> rss</label>
+              <label><input type="checkbox" value="remoteintech"/> remoteintech</label>
+            </div>
+          </label>
+        </div>
+        <div class="form-actions">
+          <button class="btn btn-primary" type="submit">SEARCH</button>
+          <button class="btn btn-ghost small" type="button" id="reload-jobs">RELOAD STORED</button>
+          <span id="search-status" class="status-line"></span>
+        </div>
+      </form>
+
+      <section class="card">
+        <header class="card-head">
+          <h3>Results</h3>
+          <span id="results-count" class="muted small">—</span>
+        </header>
+        <div class="table-wrap">
+          <table class="data-table results" id="results-table">
+            <thead>
+              <tr>
+                <th>RANK</th><th>TITLE</th><th>COMPANY</th><th>LOCATION</th>
+                <th>SCORE</th><th>SALARY</th><th>POSTED</th><th>SOURCE</th>
+                <th>BADGES</th><th>URL</th>
+              </tr>
+            </thead>
+            <tbody><tr><td colspan="10" class="empty">No results yet — run a search.</td></tr></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="job-detail" class="card job-detail hidden">
+        <header class="card-head">
+          <h3 id="jd-title">—</h3>
+          <button class="btn btn-ghost small" id="jd-close">CLOSE</button>
+        </header>
+        <div class="jd-meta" id="jd-meta"></div>
+
+        <div class="two-col">
+          <div>
+            <h4>Description</h4>
+            <div id="jd-description" class="prose"></div>
+          </div>
+          <div>
+            <h4>Keyword matrix</h4>
+            <div class="table-wrap">
+              <table class="data-table" id="jd-keywords">
+                <thead><tr><th>KEYWORD</th><th>CATEGORY</th><th>IMPORTANCE</th><th>SUPPORT</th><th>SAFE</th></tr></thead>
+                <tbody><tr><td colspan="5" class="empty">—</td></tr></tbody>
+              </table>
+            </div>
+            <h4>Evidence-backed fit</h4>
+            <ul id="jd-fit" class="bullets"></ul>
+            <h4>Gaps</h4>
+            <ul id="jd-gaps" class="bullets"></ul>
+          </div>
+        </div>
+
+        <div class="form-actions">
+          <button class="btn btn-primary" id="jd-tailor">TAILOR RESUME</button>
+          <button class="btn btn-secondary" id="jd-cover">COVER LETTER</button>
+          <button class="btn btn-secondary" id="jd-packet">BUILD PACKET</button>
+          <button class="btn btn-ghost" id="jd-save">SAVE TO PIPELINE</button>
+        </div>
+      </section>
+    </section>
+
+    <!-- ================== RESUME LAB ================== -->
+    <section class="page" data-page="resume">
+      <h2 class="page-title">04 / RESUME LAB</h2>
+      <p class="page-sub">Master + tailored variants. Provenance for every bullet.</p>
+
+      <div class="two-col">
+        <section class="card">
+          <h3>Resumes</h3>
+          <div class="table-wrap">
+            <table class="data-table" id="resume-list">
+              <thead><tr><th>ID</th><th>TYPE</th><th>JOB</th><th>UPDATED</th><th>ACTIONS</th></tr></thead>
+              <tbody><tr><td colspan="5" class="empty">No resumes yet.</td></tr></tbody>
+            </table>
+          </div>
+          <div class="form-actions">
+            <button class="btn btn-secondary" id="resume-new-master">NEW MASTER</button>
+          </div>
+        </section>
+
+        <section class="card">
+          <h3>Honesty Report</h3>
+          <pre id="honesty-report" class="codeblock">Select a tailored resume to view its honesty report.</pre>
+          <h3>Keyword Coverage</h3>
+          <div id="coverage-chart" class="coverage-chart"></div>
+        </section>
+      </div>
+
+      <section class="card resume-panel">
+        <header class="card-head">
+          <h3 id="resume-title">Resume preview</h3>
+          <div class="form-actions">
+            <button class="btn btn-ghost small" data-export="md">EXPORT&nbsp;MD</button>
+            <button class="btn btn-ghost small" data-export="txt">EXPORT&nbsp;TXT</button>
+            <button class="btn btn-ghost small" data-export="docx">EXPORT&nbsp;DOCX</button>
+            <button class="btn btn-ghost small" data-export="pdf">EXPORT&nbsp;PDF</button>
+            <button class="btn btn-secondary small" id="resume-print">PRINT</button>
+          </div>
+        </header>
+        <div class="two-col resume-grid">
+          <article id="resume-md" class="resume-md prose">
+            Select a resume to preview.
+          </article>
+          <aside id="resume-provenance" class="provenance">
+            <h4>Provenance</h4>
+            <p class="muted small">Each bullet maps to one or more EvidenceSource rows.</p>
+            <ul id="provenance-list" class="bullets"></ul>
+          </aside>
+        </div>
+      </section>
+    </section>
+
+    <!-- ================== PIPELINE ================== -->
+    <section class="page" data-page="pipeline">
+      <h2 class="page-title">05 / PIPELINE</h2>
+      <p class="page-sub">Drag cards between columns. Status updates immediately.</p>
+
+      <div class="kanban" id="kanban">
+        <!-- columns generated by JS -->
+      </div>
+    </section>
+
+    <!-- ================== INBOX ================== -->
+    <section class="page" data-page="inbox">
+      <h2 class="page-title">06 / INBOX</h2>
+      <p class="page-sub">Recruiter emails, classified. Replies are drafted, never auto-sent.</p>
+
+      <div id="inbox-status" class="banner banner-muted hidden"></div>
+
+      <section class="card">
+        <header class="card-head">
+          <h3>Email events</h3>
+          <button class="btn btn-ghost small" id="inbox-refresh">REFRESH</button>
+        </header>
+        <div class="table-wrap">
+          <table class="data-table" id="inbox-table">
+            <thead>
+              <tr><th>WHEN</th><th>FROM</th><th>SUBJECT</th><th>CLASS</th><th>JOB</th><th>ACTIONS</th></tr>
+            </thead>
+            <tbody><tr><td colspan="6" class="empty">No emails ingested.</td></tr></tbody>
+          </table>
+        </div>
+      </section>
+    </section>
+
+    <!-- ================== CALENDAR ================== -->
+    <section class="page" data-page="calendar">
+      <h2 class="page-title">07 / CALENDAR</h2>
+      <p class="page-sub">Set weekly interview windows. Generate slot suggestions on demand.</p>
+
+      <section class="card">
+        <header class="card-head">
+          <h3>Weekly availability</h3>
+          <div class="form-actions">
+            <button class="btn btn-ghost small" id="avail-clear">CLEAR</button>
+            <button class="btn btn-secondary small" id="avail-save">SAVE TO PROFILE</button>
+          </div>
+        </header>
+        <div class="grid-wrap">
+          <table class="avail-grid" id="avail-grid">
+            <!-- generated by JS -->
+          </table>
+        </div>
+        <p class="muted small">Click a cell to toggle. Green = available. Stored in <code>interview_availability_json</code>.</p>
+      </section>
+
+      <section class="card">
+        <header class="card-head">
+          <h3>Suggest slots</h3>
+          <button class="btn btn-primary small" id="suggest-slots">SUGGEST SLOTS</button>
+        </header>
+        <ul id="slot-list" class="bullets"></ul>
+      </section>
+
+      <section class="card">
+        <header class="card-head">
+          <h3>Upcoming events</h3>
+          <button class="btn btn-ghost small" id="cal-refresh">REFRESH</button>
+        </header>
+        <div class="table-wrap">
+          <table class="data-table" id="cal-events">
+            <thead><tr><th>WHEN</th><th>WITH</th><th>JOB</th><th>NOTES</th></tr></thead>
+            <tbody><tr><td colspan="4" class="empty">None.</td></tr></tbody>
+          </table>
+        </div>
+      </section>
+    </section>
+
+    <!-- ================== SETTINGS ================== -->
+    <section class="page" data-page="settings">
+      <h2 class="page-title">08 / SETTINGS</h2>
+      <p class="page-sub">Providers, sources, scoring, compliance. Persisted on the server.</p>
+
+      <section class="card">
+        <h3>Providers</h3>
+        <div class="kpi-row" id="provider-grid">
+          <!-- populated by JS -->
+        </div>
+      </section>
+
+      <section class="card">
+        <header class="card-head">
+          <h3>Job source connectors</h3>
+          <span class="muted small">risk badges per <code>source_policies.json</code></span>
+        </header>
+        <div class="table-wrap">
+          <table class="data-table" id="sources-table">
+            <thead><tr><th>NAME</th><th>HEALTHY</th><th>RISK</th><th>AUTO-APPLY OK</th><th>NOTE</th></tr></thead>
+            <tbody><tr><td colspan="5" class="empty">Loading…</td></tr></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="card">
+        <h3>Scoring weights</h3>
+        <p class="muted small">All weights must sum to 1.00. Saved into profile.</p>
+        <form id="weights-form" class="weights-form">
+          <label>Skills <input type="range" name="skills" min="0" max="1" step="0.05" value="0.30" /><span class="w-val">0.30</span></label>
+          <label>Keywords <input type="range" name="keywords" min="0" max="1" step="0.05" value="0.20" /><span class="w-val">0.20</span></label>
+          <label>Seniority <input type="range" name="seniority" min="0" max="1" step="0.05" value="0.15" /><span class="w-val">0.15</span></label>
+          <label>Salary <input type="range" name="salary" min="0" max="1" step="0.05" value="0.10" /><span class="w-val">0.10</span></label>
+          <label>Location <input type="range" name="location" min="0" max="1" step="0.05" value="0.10" /><span class="w-val">0.10</span></label>
+          <label>Industry <input type="range" name="industry" min="0" max="1" step="0.05" value="0.10" /><span class="w-val">0.10</span></label>
+          <label>Freshness <input type="range" name="freshness" min="0" max="1" step="0.05" value="0.05" /><span class="w-val">0.05</span></label>
+          <p>Total: <strong id="weights-total">1.00</strong></p>
+          <div class="form-actions">
+            <button class="btn btn-primary" type="submit">SAVE WEIGHTS</button>
+          </div>
+        </form>
+      </section>
+
+      <section class="card auto-apply-card">
+        <h3>Auto-apply</h3>
+        <div class="banner banner-warn">
+          Auto-apply may violate platform Terms of Service on scraped sources.
+          We restrict it to API sources where automation is allowed, and we will
+          never bypass logins or CAPTCHAs. <strong>You are responsible.</strong>
+        </div>
+        <p><strong>Status:</strong> <span id="aa-status">checking…</span></p>
+        <p><strong>Daily cap:</strong> <span id="aa-cap">—</span> &middot;
+           <strong>Min score:</strong> <span id="aa-min">—</span></p>
+        <div class="form-actions">
+          <button class="btn btn-warn" id="aa-enable">ENABLE AUTO-APPLY</button>
+          <button class="btn btn-ghost" id="aa-disable">DISABLE</button>
+          <button class="btn btn-secondary" id="aa-halt">HALT NOW</button>
+        </div>
+      </section>
+
+      <section class="card">
+        <h3>Default mode</h3>
+        <form id="mode-form" class="stack">
+          <label>
+            <select name="mode">
+              <option value="research">research</option>
+              <option value="assisted" selected>assisted</option>
+              <option value="auto">auto</option>
+            </select>
+          </label>
+          <button class="btn btn-secondary" type="submit">SET DEFAULT MODE</button>
+        </form>
+      </section>
+
+      <section class="card danger-card">
+        <h3>Data export &amp; deletion</h3>
+        <div class="form-actions">
+          <button class="btn btn-secondary" id="export-data">EXPORT ALL DATA</button>
+          <button class="btn btn-secondary" id="import-data">IMPORT DATA</button>
+          <button class="btn btn-warn" id="delete-data">DELETE MY DATA</button>
+        </div>
+      </section>
+    </section>
+  </main>
+
+  <!-- ================== AUTO-APPLY MODAL ================== -->
+  <div id="aa-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="aa-modal-title">
+    <div class="modal-card">
+      <h3 id="aa-modal-title">Enable auto-apply</h3>
+      <div class="banner banner-warn">
+        Automated submission to scraped sites violates their TOS and can get
+        accounts banned. This tool restricts auto-apply to API sources only —
+        but compliance is still your responsibility.
+      </div>
+      <label class="check-row">
+        <input type="checkbox" id="aa-ack" />
+        I understand auto-apply may violate TOS and I take responsibility.
+      </label>
+      <label class="stack">
+        Type <code>ENABLE</code> to confirm
+        <input id="aa-confirm" type="text" autocomplete="off" />
+      </label>
+      <div class="form-actions">
+        <button class="btn btn-warn" id="aa-confirm-btn" disabled>ENABLE</button>
+        <button class="btn btn-ghost" id="aa-cancel-btn">CANCEL</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================== JOB SAVE MODAL ================== -->
+  <div id="card-modal" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modal-card">
+      <h3 id="card-modal-title">Application</h3>
+      <div id="card-modal-body" class="stack"></div>
+      <div class="form-actions">
+        <button class="btn btn-primary" id="card-save-btn">SAVE</button>
+        <button class="btn btn-ghost" id="card-close-btn">CLOSE</button>
+      </div>
+    </div>
+  </div>
+
+  <footer class="site-footer">
+    <p>JOB&nbsp;HUNT&nbsp;HACKER &middot; local skill, MIT licensed &middot; never invents career facts</p>
+  </footer>
+
+  <script src="/app.js" defer></script>
+</body>
+</html>

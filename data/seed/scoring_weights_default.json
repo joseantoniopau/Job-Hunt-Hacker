@@ -1,0 +1,9 @@
+{
+  "skills": 0.25,
+  "experience": 0.15,
+  "salary": 0.10,
+  "location": 0.10,
+  "seniority": 0.10,
+  "keywords": 0.20,
+  "evidence": 0.10
+}

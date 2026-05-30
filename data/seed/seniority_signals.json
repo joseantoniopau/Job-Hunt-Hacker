@@ -1,0 +1,12 @@
+{
+  "intern": ["intern", "internship"],
+  "entry": ["entry level", "entry-level", "junior", "jr.", "jr ", "associate", "graduate"],
+  "mid": ["mid level", "mid-level", "software engineer ii", "engineer ii", "ii"],
+  "senior": ["senior", "sr.", "sr ", "snr", "engineer iii", "iii"],
+  "staff": ["staff"],
+  "principal": ["principal"],
+  "manager": ["manager", "mgr", "head of"],
+  "director": ["director"],
+  "vp": ["vp", "vice president"],
+  "exec": ["cto", "ceo", "cfo", "vp engineering", "svp", "evp", "chief"]
+}
