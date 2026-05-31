@@ -1,0 +1,17 @@
+{
+  "manifest_version": 3,
+  "name": "Job Hunt Hacker — Save to Vault",
+  "short_name": "JHH",
+  "version": "0.1.0",
+  "description": "Save the current job posting (or any URL with career evidence) into your local Job Hunt Hacker vault.",
+  "permissions": ["activeTab", "storage"],
+  "host_permissions": [
+    "http://127.0.0.1/*",
+    "http://localhost/*"
+  ],
+  "action": {
+    "default_title": "Save to Job Hunt Hacker",
+    "default_popup": "popup.html"
+  },
+  "icons": {}
+}

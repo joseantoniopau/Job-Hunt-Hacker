@@ -1,17 +1,36 @@
 """LLM provider interface.
 
-Two surface methods:
-  - complete(system, user, max_tokens) -> str
-  - complete_json(system, user, schema_hint) -> dict  (always returns dict; repairs invalid JSON)
+Surface methods:
+  - complete(system, user, max_tokens) -> str               (legacy; still supported)
+  - complete_with_status(system, user, ...) -> LLMResult    (modern; exposes rate-limit / error status)
+  - complete_json(system, user, schema_hint) -> dict        (always returns dict; repairs invalid JSON)
 
-Providers should NEVER raise on transient errors — wrap in try/except and
-return a string explaining the failure. The TemplateProvider exists so the
-app always has a working LLM, even with no API keys.
+Providers should NEVER raise on transient errors -- wrap in try/except and
+return a string (legacy) / `LLMResult(status="error", ...)` (modern). The
+TemplateProvider exists so the app always has a working LLM, even with no
+API keys.
 """
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from typing import Any
+
+
+# Canonical status values for LLMResult.status. Keep narrow on purpose;
+# callers branch on these so adding new ones is a UI-visible event.
+STATUS_OK = "ok"
+STATUS_RATE_LIMITED = "rate_limited"
+STATUS_ERROR = "error"
+STATUS_EMPTY = "empty"
+
+
+@dataclass
+class LLMResult:
+    text: str
+    status: str = STATUS_OK
+    latency_ms: int = 0
+    error: str | None = None
 
 
 class LLMProvider(ABC):
@@ -19,6 +38,32 @@ class LLMProvider(ABC):
 
     @abstractmethod
     def complete(self, system: str, user: str, max_tokens: int = 2048, temperature: float = 0.3) -> str: ...
+
+    def complete_with_status(
+        self,
+        system: str,
+        user: str,
+        max_tokens: int = 2048,
+        temperature: float = 0.3,
+    ) -> LLMResult:
+        """Default impl wraps `complete()`; subclasses override to surface
+        status codes (rate_limited / error). Backward compatible: providers
+        that only implement `complete()` still work."""
+        import time as _t
+        t0 = _t.perf_counter()
+        try:
+            text = self.complete(system, user, max_tokens=max_tokens, temperature=temperature)
+        except Exception as exc:  # noqa: BLE001
+            return LLMResult(
+                text="",
+                status=STATUS_ERROR,
+                latency_ms=int((_t.perf_counter() - t0) * 1000),
+                error=f"{type(exc).__name__}: {exc}",
+            )
+        latency = int((_t.perf_counter() - t0) * 1000)
+        if not text:
+            return LLMResult(text="", status=STATUS_EMPTY, latency_ms=latency)
+        return LLMResult(text=text, status=STATUS_OK, latency_ms=latency)
 
     def complete_json(self, system: str, user: str, schema_hint: dict | None = None,
                       max_tokens: int = 2048, temperature: float = 0.2) -> dict:

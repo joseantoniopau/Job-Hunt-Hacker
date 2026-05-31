@@ -3,9 +3,10 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 
 from ..models.schemas import URLIngestRequest
+from ..security.rate_limit import rate_limit
 from ..services import url_ingestion
 from ..utils.text import truncate
 
@@ -15,7 +16,8 @@ router = APIRouter(prefix="/api/urls", tags=["urls"])
 
 
 @router.post("/preview")
-def preview(body: URLIngestRequest) -> dict:
+@rate_limit("10/minute")
+def preview(request: Request, body: URLIngestRequest) -> dict:
     if not body.url:
         raise HTTPException(400, "url required")
     result = url_ingestion.fetch_url(body.url)

@@ -11,12 +11,14 @@ import time
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 
 from ..config import settings
 from ..db import audit, get_conn, row_to_dict, tx
 from ..models.schemas import OK, ResumeTailorRequest
+from ..security.rate_limit import rate_limit
+from ..security.uploads import validate_upload
 from ..tailoring import resume_tailor
 from ..utils.text import slug
 
@@ -43,9 +45,13 @@ async def upload_resume(
 ) -> dict:
     if not file or not file.filename:
         raise HTTPException(400, "no file provided")
+    # Cheap header check before consuming bytes; cap + extension whitelist.
+    validate_upload(file, ("pdf", "docx", "doc", "md", "txt"))
     raw = await file.read()
     if not raw:
         raise HTTPException(400, "empty file")
+    # Safety-net: re-check size against the materialised bytes.
+    validate_upload(file, ("pdf", "docx", "doc", "md", "txt"), raw_bytes=raw)
 
     safe_name = _safe_filename(file.filename)
     dest = Path(settings.uploads_dir) / f"{int(time.time())}_{safe_name}"
@@ -170,7 +176,8 @@ def get_resume(resume_id: int) -> dict:
 # ---------- tailor ----------
 
 @router.post("/resume/tailor")
-def tailor(body: ResumeTailorRequest) -> dict:
+@rate_limit("10/minute")
+def tailor(request: Request, body: ResumeTailorRequest) -> dict:
     try:
         result = resume_tailor.tailor_resume(
             job_id=body.job_id,

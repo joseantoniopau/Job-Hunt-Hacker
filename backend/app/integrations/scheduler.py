@@ -31,6 +31,7 @@ _scheduler: Optional[Any] = None
 _started: bool = False
 _INBOX_JOB_ID = "jhh.inbox_sweep"
 _FOLLOWUP_JOB_ID = "jhh.followups"
+_DIGEST_JOB_ID = "jhh.daily_digest"
 
 
 def _get_scheduler() -> Optional[Any]:
@@ -61,6 +62,8 @@ def start() -> None:
         # standing jobs
         _register_inbox_sweep()
         _register_followups()
+        _register_daily_digest()
+        register_audit_retention()
         register_saved_searches()
         try:
             audit("scheduler_start", "system", jobs=[j.id for j in s.get_jobs()])
@@ -365,6 +368,48 @@ def _register_followups() -> None:
         log.warning("could not register followups: %s", exc)
 
 
+# ---------- daily digest ----------
+
+def run_daily_digest() -> dict:
+    """Defensive wrapper around digest.run_digest so a missing optional dep
+    can never crash the scheduler tick.
+    """
+    try:
+        from . import digest as _digest
+    except Exception as exc:  # noqa: BLE001
+        log.warning("digest module unavailable: %s", exc)
+        return {"ok": False, "detail": f"digest_unavailable: {exc}"}
+    try:
+        out = _digest.run_digest(since_hours=24) or {}
+        return out
+    except Exception as exc:  # noqa: BLE001
+        log.warning("digest run failed: %s", exc)
+        return {"ok": False, "detail": str(exc)}
+
+
+def _register_daily_digest() -> None:
+    """Register the daily digest job at 07:00 (server tz = UTC)."""
+    s = _get_scheduler()
+    if s is None:
+        return
+    try:
+        if s.get_job(_DIGEST_JOB_ID):
+            s.remove_job(_DIGEST_JOB_ID)
+    except Exception:
+        pass
+    try:
+        s.add_job(
+            run_daily_digest,
+            trigger=CronTrigger(hour=7, minute=0),
+            id=_DIGEST_JOB_ID,
+            replace_existing=True,
+            max_instances=1,
+            coalesce=True,
+        )
+    except Exception as exc:  # noqa: BLE001
+        log.warning("could not register daily digest: %s", exc)
+
+
 # ---------- status ----------
 
 def status() -> dict:
@@ -385,3 +430,54 @@ def status() -> dict:
         "running": is_running(),
         "jobs": jobs,
     }
+
+
+# ---------- audit log retention ----------
+
+_AUDIT_RETENTION_JOB_ID = "jhh.audit_retention"
+
+
+def run_audit_retention() -> dict:
+    """Delete audit_log rows older than JHH_AUDIT_RETENTION_DAYS (default 90).
+
+    Audit_log grows unbounded otherwise. After ~100k actions it bloats the
+    SQLite file and slows inserts.
+    """
+    import os
+    try:
+        days = max(1, int(os.environ.get("JHH_AUDIT_RETENTION_DAYS", "90")))
+    except ValueError:
+        days = 90
+    cutoff = time.time() - days * 86400
+    conn = get_conn()
+    with tx() as c:
+        cur = c.execute("DELETE FROM audit_log WHERE ts < ?", (cutoff,))
+        deleted = int(cur.rowcount or 0)
+    if deleted > 0:
+        # Self-audit ONLY when something was deleted (avoid feedback loops).
+        try:
+            audit("audit_retention_purged", "audit_log", None,
+                  deleted=deleted, retention_days=days)
+        except Exception:
+            pass
+    return {"ok": True, "deleted": deleted, "days": days,
+            "retention_days": days, "cutoff_ts": cutoff}
+
+
+def register_audit_retention() -> bool:
+    """Daily job at 03:30 UTC. Idempotent via replace_existing."""
+    s = _get_scheduler()
+    if s is None:
+        return False
+    try:
+        s.add_job(
+            run_audit_retention,
+            CronTrigger(hour=3, minute=30, timezone="UTC"),
+            id=_AUDIT_RETENTION_JOB_ID,
+            replace_existing=True,
+            misfire_grace_time=3600,
+        )
+        return True
+    except Exception as exc:  # noqa: BLE001
+        log.warning("audit retention scheduler register failed: %s", exc)
+        return False

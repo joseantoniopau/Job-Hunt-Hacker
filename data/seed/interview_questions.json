@@ -1,0 +1,182 @@
+{
+  "general": [
+    "Tell me about yourself in 90 seconds.",
+    "What's a real failure you owned and what changed afterwards?",
+    "Walk me through a recent decision where you had to balance speed and quality.",
+    "Why this company and why now?",
+    "What questions do you have for me?",
+    "Describe a time you had to give difficult feedback to a peer.",
+    "Where do you want to be in three years and how does this role fit?"
+  ],
+  "engineering": [
+    "Walk through the architecture of the most complex system you've built.",
+    "Describe a time you reduced incident frequency or on-call load in production.",
+    "How do you decide when to refactor versus ship?",
+    "Tell me about a technical disagreement you lost. What did you learn?",
+    "What's the worst bug you've shipped, and how did you find and fix it?",
+    "How do you scope a project when requirements are ambiguous?",
+    "Describe your approach to code review when you're the senior engineer in the room."
+  ],
+  "data": [
+    "Walk me through an analysis where the data changed your initial hypothesis.",
+    "How do you decide between a simple model and a more complex one?",
+    "Tell me about a time you found a data quality issue. How did you handle it?",
+    "How do you communicate model limitations to non-technical stakeholders?",
+    "Describe a pipeline you built end-to-end — ingestion, transformation, serving.",
+    "How do you evaluate whether an A/B test result is actually significant?",
+    "Walk through a metric you defined for a product team. Why that metric?"
+  ],
+  "design": [
+    "Walk me through a recent project from problem framing to shipped UI.",
+    "Tell me about a design decision you made that was unpopular with the team.",
+    "How do you balance brand consistency with experimentation?",
+    "Describe how you incorporate user research into a tight sprint.",
+    "What's a piece of feedback that changed how you approach design?",
+    "How do you measure whether a design is successful after launch?",
+    "Walk me through how you handle accessibility in your workflow."
+  ],
+  "product": [
+    "Walk through a product decision where you said no to a high-profile request.",
+    "How do you prioritize when engineering, design, and sales all want different things?",
+    "Tell me about a launch that underperformed. What did you do next?",
+    "How do you write a PRD — what goes in, what stays out?",
+    "Describe a metric you owned and the lever you used to move it.",
+    "How do you decide when to kill a feature?",
+    "Walk through how you'd discover whether a new market is worth entering."
+  ],
+  "marketing": [
+    "Walk me through a campaign you ran end-to-end — strategy, execution, results.",
+    "Tell me about a channel you scaled from nothing to a meaningful share of pipeline.",
+    "How do you measure brand work that doesn't have direct attribution?",
+    "Describe a positioning shift you led. What was the catalyst?",
+    "How do you decide between paid and organic investment in a quarter?",
+    "Tell me about a time you killed a campaign mid-flight. Why?",
+    "What's your process for understanding a new customer segment?"
+  ],
+  "sales": [
+    "Walk me through your largest deal — from prospect to close.",
+    "Tell me about a deal you lost. What would you do differently?",
+    "How do you handle a champion who suddenly goes dark mid-cycle?",
+    "Describe your discovery process — what are you trying to learn in the first call?",
+    "How do you forecast a quarter? Walk me through your method.",
+    "Tell me about a time you turned a no into a yes.",
+    "How do you partner with product or marketing to fix repeated objections?"
+  ],
+  "writing": [
+    "Walk me through how you research a piece on a topic you don't know well.",
+    "Tell me about an editor's note that fundamentally changed a draft.",
+    "How do you adapt voice for different audiences within the same brand?",
+    "Describe a piece that performed unexpectedly well or poorly. What did you learn?",
+    "How do you handle a topic where sources disagree or evidence is thin?",
+    "Walk through your editing process for someone else's draft.",
+    "What's a recent style or workflow change you've adopted and why?"
+  ],
+  "operations": [
+    "Walk through a process you redesigned. What was broken and what changed?",
+    "Tell me about a cross-functional initiative you drove with no formal authority.",
+    "How do you decide what to automate versus what to leave manual?",
+    "Describe a time you caught a compliance or risk issue before it escalated.",
+    "How do you prioritize work when every stakeholder thinks theirs is urgent?",
+    "Tell me about a vendor relationship you renegotiated. What was the outcome?",
+    "Walk me through how you'd onboard into a function you've never run before."
+  ],
+  "support": [
+    "Walk me through how you handle an angry customer who's been escalated to you.",
+    "Tell me about a recurring ticket pattern you spotted and escalated to product.",
+    "How do you balance speed of response with quality of resolution?",
+    "Describe a knowledge base or documentation improvement you drove.",
+    "How do you handle a request that falls outside what the product can do today?",
+    "Tell me about a time you trained or coached a teammate through a tough case.",
+    "What metrics do you actually care about in a support org and why?"
+  ],
+  "security": [
+    "Walk me through an incident you led the response on. What went right and wrong?",
+    "How do you prioritize vulnerabilities when you have more findings than capacity?",
+    "Tell me about a control you implemented that engineering pushed back on.",
+    "Describe your approach to threat modeling a new system.",
+    "How do you communicate risk to non-security executives?",
+    "Walk me through how you'd evaluate a third-party vendor's security posture.",
+    "Tell me about a time you found something that wasn't supposed to be there."
+  ],
+  "exec": [
+    "Walk me through a strategic bet you made that didn't pay off.",
+    "Tell me about how you set the operating cadence at your last company.",
+    "How do you decide when to hire from outside versus promote from within?",
+    "Describe a time you had to deliver bad news to the board or investors.",
+    "Walk through how you'd diagnose what's broken in a function in your first 60 days.",
+    "Tell me about a leader you developed. What was the arc?",
+    "How do you balance short-term financial discipline with long-term investment?"
+  ],
+  "legal": [
+    "Walk me through how you'd approach a contract negotiation where the other side has more leverage.",
+    "Tell me about a complex matter you handled where the law was unsettled. How did you advise the client?",
+    "Describe a time you had to deliver difficult legal advice that the business didn't want to hear.",
+    "How do you balance billable hour pressure with thorough client service?",
+    "Walk me through your approach to managing discovery on a large case.",
+    "Tell me about a compliance gap you identified and how you remediated it.",
+    "How do you handle a situation where a client wants to do something that's legal but ethically questionable?"
+  ],
+  "medical": [
+    "Walk me through how you'd handle a deteriorating patient when the on-call physician is unreachable.",
+    "Tell me about a time you caught a medication or treatment error before it reached the patient.",
+    "Describe a conflict with a colleague over a patient care decision and how you resolved it.",
+    "How do you maintain compassion in a high-volume, fast-paced clinical setting?",
+    "Walk me through how you'd educate a non-compliant patient about a chronic condition.",
+    "Tell me about a situation involving difficult family dynamics around end-of-life care.",
+    "How do you handle a situation where you disagree with a physician's order?"
+  ],
+  "finance": [
+    "Walk me through a financial model you built end-to-end and the decision it informed.",
+    "Tell me about a time your analysis changed a leadership decision.",
+    "How do you handle stakeholders pushing back on conservative forecasts?",
+    "Describe a control deficiency you identified and the remediation you led.",
+    "Walk me through how you'd value a company in a sector you've never analyzed before.",
+    "Tell me about a tough close or audit. What went wrong and what did you change next quarter?",
+    "How do you communicate financial risk to non-finance executives without burying it?"
+  ],
+  "education": [
+    "Walk me through a lesson that fell flat and what you changed for the next attempt.",
+    "Tell me about a struggling student you turned around. What worked?",
+    "How do you differentiate instruction for a class with a wide range of abilities?",
+    "Describe a difficult conversation with a parent. How did you handle it?",
+    "Walk through how you'd redesign a unit that students consistently disengage from.",
+    "Tell me about how you incorporate student feedback into your teaching practice.",
+    "How do you balance covering required curriculum with going deep on student interests?"
+  ],
+  "creative": [
+    "Walk me through a project from creative brief to delivered asset.",
+    "Tell me about a time a client or stakeholder wanted something you knew wouldn't work. How did you handle it?",
+    "Describe how you take direction without losing your point of view.",
+    "How do you stay sharp creatively when working on repetitive briefs?",
+    "Walk through your process for tackling a brief outside your usual style or medium.",
+    "Tell me about a piece you were proud of that didn't perform commercially. What did you learn?",
+    "How do you collaborate with copywriters, strategists, or developers on a single deliverable?"
+  ],
+  "hospitality": [
+    "Walk me through how you'd handle a guest complaint that escalated to corporate.",
+    "Tell me about a busy service where everything went wrong. What did you do?",
+    "How do you motivate a team during a slow shift or off-season?",
+    "Describe how you'd onboard a new hire during a peak weekend.",
+    "Walk through how you control food cost or labor cost without hurting the guest experience.",
+    "Tell me about a time you turned a one-star review into a loyal regular.",
+    "How do you handle a teammate not pulling their weight during service?"
+  ],
+  "trades": [
+    "Walk me through the most complex job you've completed start to finish.",
+    "Tell me about a safety issue you identified on site and how you handled it.",
+    "Describe a job that went sideways. What was the root cause and what did you do?",
+    "How do you read and translate blueprints or specs for an apprentice?",
+    "Walk through how you estimate materials and time for a new job.",
+    "Tell me about a time you had to push back on a customer's request because it wasn't up to code.",
+    "How do you stay current with code changes and new techniques in your trade?"
+  ],
+  "science": [
+    "Walk me through a research project where the results were unexpected. What did you do next?",
+    "Tell me about a failed experiment that taught you the most.",
+    "How do you decide what to publish versus what to hold for a follow-up paper?",
+    "Describe a collaboration where you and another lab disagreed. How was it resolved?",
+    "Walk through how you'd onboard a new grad student or intern to your project.",
+    "Tell me about a grant or funding decision you had to argue for.",
+    "How do you balance depth in your specialty with staying current across adjacent fields?"
+  ]
+}

@@ -6,9 +6,10 @@ from __future__ import annotations
 import logging
 from dataclasses import asdict
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 
 from ..models.schemas import JobSearchRequest
+from ..security.rate_limit import rate_limit
 from ..services.job_sources import REGISTRY
 from ..services.job_sources.base import JobSearchQuery
 from ..services.job_sources.pipeline import persist, search_all
@@ -33,7 +34,8 @@ def _to_query(body: JobSearchRequest) -> JobSearchQuery:
 
 
 @router.post("/search")
-def post_search(body: JobSearchRequest) -> dict:
+@rate_limit("10/minute")
+def post_search(request: Request, body: JobSearchRequest) -> dict:
     q = _to_query(body)
     # which adapters to call
     requested_sites: list[str] = []

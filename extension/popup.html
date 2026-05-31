@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Job Hunt Hacker</title>
+    <style>
+      :root { color-scheme: light dark; }
+      body {
+        font-family: -apple-system, Segoe UI, Roboto, sans-serif;
+        width: 320px;
+        margin: 0;
+        padding: 14px 16px 16px;
+        font-size: 13px;
+      }
+      h1 {
+        font-size: 14px;
+        margin: 0 0 10px;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+      }
+      .label {
+        font-size: 11px;
+        text-transform: uppercase;
+        color: #666;
+        margin-top: 10px;
+        margin-bottom: 4px;
+      }
+      .url {
+        word-break: break-all;
+        background: rgba(127, 127, 127, 0.12);
+        padding: 6px 8px;
+        border-radius: 4px;
+        font-family: SF Mono, Menlo, monospace;
+        font-size: 11px;
+        max-height: 64px;
+        overflow: auto;
+      }
+      input[type="text"] {
+        width: 100%;
+        box-sizing: border-box;
+        padding: 6px 8px;
+        font-family: SF Mono, Menlo, monospace;
+        font-size: 11px;
+        border: 1px solid #999;
+        border-radius: 4px;
+        background: transparent;
+        color: inherit;
+      }
+      button {
+        margin-top: 12px;
+        width: 100%;
+        padding: 9px 12px;
+        font-size: 12px;
+        font-weight: 600;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        background: #111;
+        color: #fff;
+        border: 0;
+        border-radius: 4px;
+        cursor: pointer;
+      }
+      button[disabled] { opacity: 0.55; cursor: progress; }
+      button.secondary {
+        background: transparent;
+        color: inherit;
+        border: 1px solid #888;
+        margin-top: 6px;
+      }
+      #toast {
+        margin-top: 10px;
+        padding: 8px 10px;
+        border-radius: 4px;
+        font-size: 12px;
+        display: none;
+      }
+      #toast.ok { background: #d6f5d6; color: #1b5e20; display: block; }
+      #toast.err { background: #fde2e1; color: #8a1c1c; display: block; }
+    </style>
+  </head>
+  <body>
+    <h1>Save to Job Hunt Hacker</h1>
+
+    <div class="label">Current URL</div>
+    <div id="current-url" class="url">(loading)</div>
+
+    <div class="label">Local server</div>
+    <input id="server-url" type="text" value="http://127.0.0.1:8731" />
+
+    <button id="save-btn">Save to Job Hunt Hacker</button>
+    <button id="save-settings" class="secondary">Save server URL</button>
+
+    <div id="toast"></div>
+
+    <script src="popup.js"></script>
+  </body>
+</html>

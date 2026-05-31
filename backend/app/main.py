@@ -56,6 +56,40 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Security hardening: optional bearer-token auth + rate-limit handler.
+# Both degrade to no-ops when their optional deps / env vars are missing.
+try:
+    from .security.auth import BearerTokenMiddleware
+    app.add_middleware(BearerTokenMiddleware)
+except Exception as exc:  # noqa: BLE001
+    log.warning("auth middleware failed to install: %s", exc)
+
+try:
+    from .security.rate_limit import install_rate_limit_handler
+    install_rate_limit_handler(app)
+except Exception as exc:  # noqa: BLE001
+    log.warning("rate-limit handler failed to install: %s", exc)
+
+# Observability: request-id middleware + prometheus metrics middleware +
+# structured logging. All degrade to no-op when optional deps are missing.
+try:
+    from .middleware.structured_logging import init_structured_logging
+    init_structured_logging()
+except Exception as exc:  # noqa: BLE001
+    log.warning("structured logging init failed: %s", exc)
+
+try:
+    from .middleware.request_id import RequestIDMiddleware
+    app.add_middleware(RequestIDMiddleware)
+except Exception as exc:  # noqa: BLE001
+    log.warning("request-id middleware failed to install: %s", exc)
+
+try:
+    from .middleware.metrics import PrometheusMiddleware
+    app.add_middleware(PrometheusMiddleware)
+except Exception as exc:  # noqa: BLE001
+    log.warning("metrics middleware failed to install: %s", exc)
+
 
 # --- routers (import each in try/except so failures degrade gracefully) ---
 
@@ -67,6 +101,7 @@ ROUTER_MODULES = [
     "search",
     "jobs",
     "resume",
+    "resume_iterate",
     "cover_letter",
     "recruiter",
     "applications",
@@ -79,6 +114,20 @@ ROUTER_MODULES = [
     "auto_apply",
     "stats",
     "data",
+    "audit",
+    "metrics",
+    "gaps",
+    "effectiveness",
+    "bulk",
+    # ---- Headhunter mode ----
+    "salary",
+    "companies",
+    "connections",
+    "velocity",
+    "negotiation",
+    "followups",
+    # ---- Operational ----
+    "updates",
 ]
 
 _loaded: list[str] = []

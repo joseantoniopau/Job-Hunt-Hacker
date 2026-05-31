@@ -26,12 +26,16 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import re
 import time
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query, UploadFile, File
 from fastapi.responses import Response
+from pydantic import BaseModel
 
 from ..config import settings
 from ..db import audit, get_conn, row_to_dict, tx
@@ -41,6 +45,39 @@ log = logging.getLogger("jhh.data")
 router = APIRouter(prefix="/api/data", tags=["data"])
 
 EXPORT_VERSION = "1"
+
+# Snapshots are pre-wipe insurance: we always take a fresh export right
+# before destructive ops so the user can roll back. Keep the last 5.
+_SNAPSHOT_KEEP = 5
+_SNAPSHOT_PREFIX = "jhh-pre-wipe-"
+_SNAPSHOT_SUFFIX = ".json"
+# Loose ISO8601-ish: digits / T / Z / dashes / colons / dots. No path
+# separators, no parent refs, no spaces -- defense-in-depth on filename
+# acceptance for the restore/delete endpoints.
+_SAFE_FILENAME_RE = re.compile(r"^[A-Za-z0-9._\-:T]+$")
+
+
+def _snapshots_dir() -> Path:
+    p = settings.data_dir / "snapshots"
+    p.mkdir(parents=True, exist_ok=True)
+    return p
+
+
+def _validate_filename(filename: str) -> str:
+    """Reject anything that could escape the snapshots dir. Returns the
+    cleaned filename or raises HTTPException(400)."""
+    if not filename or not isinstance(filename, str):
+        raise HTTPException(400, "filename is required")
+    name = filename.strip()
+    # Reject path separators / traversal explicitly even though the regex
+    # would catch them -- this makes the error message specific.
+    if "/" in name or "\\" in name or ".." in name or name.startswith("."):
+        raise HTTPException(400, "invalid filename (path traversal)")
+    if not _SAFE_FILENAME_RE.match(name):
+        raise HTTPException(400, "invalid filename (disallowed characters)")
+    if os.path.basename(name) != name:
+        raise HTTPException(400, "invalid filename")
+    return name
 
 # Tables exported and importable. Order matters for import (parents first).
 # Each entry is (table_name, primary_key_col).
@@ -87,8 +124,9 @@ WIPE_TABLES: list[str] = [
 
 # ---------- EXPORT ----------
 
-@router.get("/export")
-def export_all() -> Response:
+def _build_export_bundle() -> tuple[dict[str, Any], dict[str, int]]:
+    """Materialize the full export bundle + per-table row counts. Pulled
+    out of `export_all` so snapshot creation can reuse it."""
     conn = get_conn()
     bundle: dict[str, Any] = {
         "version": EXPORT_VERSION,
@@ -108,7 +146,6 @@ def export_all() -> Response:
         dicts = [_row_for_export(r) for r in rows]
         bundle["tables"][table] = dicts
         counts[table] = len(dicts)
-    # last 500 audit-log entries (full history can be huge; keep cap)
     try:
         rows = conn.execute(
             "SELECT * FROM audit_log ORDER BY id DESC LIMIT 500"
@@ -118,7 +155,12 @@ def export_all() -> Response:
     except Exception:
         bundle["audit_log_recent"] = []
         counts["audit_log_recent"] = 0
+    return bundle, counts
 
+
+@router.get("/export")
+def export_all() -> Response:
+    bundle, counts = _build_export_bundle()
     audit("data_export", "data", None, counts=counts)
     body = json.dumps(bundle, default=str, indent=2)
     ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
@@ -140,21 +182,125 @@ def _row_for_export(row) -> dict:
     return d
 
 
+# ---------- CSV EXPORT ----------
+
+# Friendly aliases the UI uses → real SQL table names.
+_CSV_TABLE_ALIASES: dict[str, str] = {
+    "applications": "application",
+    "application": "application",
+    "jobs": "job_posting",
+    "job_posting": "job_posting",
+    "claims": "career_claim",
+    "career_claim": "career_claim",
+    "tailored_resumes": "tailored_resume",
+    "tailored_resume": "tailored_resume",
+    "cover_letters": "cover_letter",
+    "cover_letter": "cover_letter",
+}
+
+# Which tables are eligible for the whole-export ZIP bundle.
+_CSV_BUNDLE_TABLES: list[str] = [
+    "application",
+    "job_posting",
+    "career_claim",
+    "tailored_resume",
+    "cover_letter",
+]
+
+
+def _csv_rows_for_table(table: str) -> tuple[list[str], list[dict]]:
+    """Return (headers, rows) for the requested table. Headers are the
+    table's column names in PRAGMA order. Rows are plain dicts with raw
+    JSON columns stringified (so the CSV is import-symmetric)."""
+    conn = get_conn()
+    cols_info = conn.execute(f"PRAGMA table_info({table})").fetchall()
+    headers = [c[1] for c in cols_info]
+    raw_rows = conn.execute(f"SELECT * FROM {table}").fetchall()
+    out: list[dict] = []
+    for r in raw_rows:
+        d = dict(r)
+        # Keep JSON columns as their original stored string — CSV must be
+        # a single flat string per cell. If the column is None, leave it as "".
+        for k, v in list(d.items()):
+            if v is None:
+                d[k] = ""
+            elif isinstance(v, (dict, list)):
+                d[k] = json.dumps(v, default=str)
+        out.append(d)
+    return headers, out
+
+
+def _csv_text(headers: list[str], rows: list[dict]) -> str:
+    import csv
+    import io
+    buf = io.StringIO()
+    writer = csv.DictWriter(buf, fieldnames=headers, extrasaction="ignore")
+    writer.writeheader()
+    for row in rows:
+        writer.writerow(row)
+    return buf.getvalue()
+
+
+@router.get("/export.csv")
+def export_csv(table: str | None = Query(default=None)) -> Response:
+    """Single-table CSV when `?table=...` is given; whole-export ZIP otherwise."""
+    ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+
+    if table:
+        sql_table = _CSV_TABLE_ALIASES.get(table.strip().lower())
+        if not sql_table:
+            raise HTTPException(
+                400,
+                f"unknown table: {table!r}; valid: {sorted(set(_CSV_TABLE_ALIASES.keys()))}",
+            )
+        try:
+            headers, rows = _csv_rows_for_table(sql_table)
+        except Exception as exc:  # noqa: BLE001
+            raise HTTPException(500, f"csv export failed for {sql_table}: {exc}")
+        body = _csv_text(headers, rows)
+        audit("data_export_csv", "data", None, table=sql_table, rows=len(rows))
+        filename = f"jhh-{table}-{ts}.csv"
+        return Response(
+            content=body,
+            media_type="text/csv; charset=utf-8",
+            headers={
+                "Content-Disposition": f'attachment; filename="{filename}"',
+                "X-JHH-Export-Rows": str(len(rows)),
+            },
+        )
+
+    # No table param → ZIP of every bundle table's CSV.
+    import io
+    import zipfile
+    buf = io.BytesIO()
+    counts: dict[str, int] = {}
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for sql_table in _CSV_BUNDLE_TABLES:
+            try:
+                headers, rows = _csv_rows_for_table(sql_table)
+            except Exception as exc:  # noqa: BLE001
+                log.warning("csv-zip: skip %s (%s)", sql_table, exc)
+                continue
+            counts[sql_table] = len(rows)
+            zf.writestr(f"{sql_table}.csv", _csv_text(headers, rows))
+    audit("data_export_csv_zip", "data", None, counts=counts)
+    filename = f"jhh-export-{ts}.zip"
+    return Response(
+        content=buf.getvalue(),
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "X-JHH-Export-Counts": json.dumps(counts),
+        },
+    )
+
+
 # ---------- IMPORT ----------
 
-@router.post("/import")
-async def import_all(file: UploadFile = File(...)) -> dict:
-    try:
-        raw = await file.read()
-    except Exception as exc:
-        raise HTTPException(400, f"could not read upload: {exc}")
-    if not raw:
-        raise HTTPException(400, "empty upload")
-    try:
-        bundle = json.loads(raw.decode("utf-8"))
-    except Exception as exc:
-        raise HTTPException(400, f"invalid JSON: {exc}")
-
+def _import_bundle(bundle: Any) -> dict[str, Any]:
+    """Apply a parsed export bundle. Raises HTTPException on validation
+    failures so handlers can let it bubble. Returns the same payload that
+    the legacy /import endpoint emits."""
     if not isinstance(bundle, dict):
         raise HTTPException(400, "bundle must be a JSON object")
     version = str(bundle.get("version") or "")
@@ -261,6 +407,139 @@ async def import_all(file: UploadFile = File(...)) -> dict:
     }
 
 
+@router.post("/import")
+async def import_all(file: UploadFile = File(...)) -> dict:
+    try:
+        raw = await file.read()
+    except Exception as exc:
+        raise HTTPException(400, f"could not read upload: {exc}")
+    if not raw:
+        raise HTTPException(400, "empty upload")
+    try:
+        bundle = json.loads(raw.decode("utf-8"))
+    except Exception as exc:
+        raise HTTPException(400, f"invalid JSON: {exc}")
+    return _import_bundle(bundle)
+
+
+# ---------- SNAPSHOTS ----------
+
+def _write_pre_wipe_snapshot() -> dict[str, Any]:
+    """Capture a full export into data/snapshots/ and rotate older ones.
+    Returns metadata about the snapshot just written. Best-effort: a
+    failure here MUST NOT block the wipe (it just means no rollback)."""
+    try:
+        bundle, counts = _build_export_bundle()
+        # ISO timestamp with `:` and `.` for human readability. Pre-wipe
+        # snapshots are read by humans more than by code.
+        ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H-%M-%SZ")
+        filename = f"{_SNAPSHOT_PREFIX}{ts}{_SNAPSHOT_SUFFIX}"
+        path = _snapshots_dir() / filename
+        body = json.dumps(bundle, default=str, indent=2)
+        path.write_text(body, encoding="utf-8")
+        _rotate_snapshots()
+        return {
+            "filename": filename,
+            "size_bytes": path.stat().st_size,
+            "counts": counts,
+        }
+    except Exception as exc:  # noqa: BLE001
+        log.warning("pre-wipe snapshot failed: %s", exc)
+        return {"filename": None, "size_bytes": 0, "counts": {}, "error": str(exc)}
+
+
+def _list_snapshot_files() -> list[Path]:
+    d = _snapshots_dir()
+    return sorted(
+        [p for p in d.iterdir()
+         if p.is_file() and p.name.startswith(_SNAPSHOT_PREFIX) and p.name.endswith(_SNAPSHOT_SUFFIX)],
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    )
+
+
+def _rotate_snapshots() -> int:
+    """Keep newest _SNAPSHOT_KEEP files; delete the rest. Returns count deleted."""
+    files = _list_snapshot_files()
+    if len(files) <= _SNAPSHOT_KEEP:
+        return 0
+    removed = 0
+    for stale in files[_SNAPSHOT_KEEP:]:
+        try:
+            stale.unlink()
+            removed += 1
+        except Exception as exc:  # noqa: BLE001
+            log.warning("snapshot rotate: failed to delete %s: %s", stale.name, exc)
+    return removed
+
+
+def _snapshot_meta(path: Path) -> dict[str, Any]:
+    counts: dict[str, int] = {}
+    try:
+        bundle = json.loads(path.read_text(encoding="utf-8"))
+        tables = (bundle or {}).get("tables") or {}
+        if isinstance(tables, dict):
+            for tname, rows in tables.items():
+                if isinstance(rows, list):
+                    counts[tname] = len(rows)
+        audit_rows = (bundle or {}).get("audit_log_recent") or []
+        if isinstance(audit_rows, list):
+            counts["audit_log_recent"] = len(audit_rows)
+    except Exception:
+        counts = {}
+    stat = path.stat()
+    return {
+        "filename": path.name,
+        "size_bytes": stat.st_size,
+        "created_at": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),
+        "counts": counts,
+    }
+
+
+@router.get("/snapshots")
+def list_snapshots() -> dict:
+    files = _list_snapshot_files()
+    items = [_snapshot_meta(p) for p in files]
+    return {"ok": True, "data": {"snapshots": items, "count": len(items), "keep": _SNAPSHOT_KEEP}}
+
+
+class _RestoreReq(BaseModel):
+    filename: str
+
+
+@router.post("/snapshots/restore")
+def restore_snapshot(req: _RestoreReq) -> dict:
+    name = _validate_filename(req.filename)
+    path = _snapshots_dir() / name
+    if not path.is_file():
+        raise HTTPException(404, f"snapshot not found: {name}")
+    try:
+        bundle = json.loads(path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        raise HTTPException(400, f"snapshot is not valid JSON: {exc}")
+    result = _import_bundle(bundle)
+    audit("snapshot_restore", "data", None, filename=name)
+    if isinstance(result, dict):
+        data = result.get("data") or {}
+        data["restored_from"] = name
+        result["data"] = data
+    return result
+
+
+@router.delete("/snapshots/{filename}")
+def delete_snapshot(filename: str) -> dict:
+    name = _validate_filename(filename)
+    path = _snapshots_dir() / name
+    if not path.is_file():
+        raise HTTPException(404, f"snapshot not found: {name}")
+    try:
+        path.unlink()
+    except Exception as exc:
+        raise HTTPException(500, f"could not delete snapshot: {exc}")
+    audit("snapshot_delete", "data", None, filename=name)
+    return {"ok": True, "data": {"filename": name, "deleted": True}}
+
+
 # ---------- WIPE ----------
 
 @router.delete("")
@@ -275,6 +554,10 @@ def delete_all(
             400,
             "destructive op requires ?i_understand=ENABLE (exact string)",
         )
+    # Pre-wipe snapshot: capture current state to disk BEFORE the
+    # transaction starts so a wipe-then-realize-you-needed-something
+    # recovery is one POST /api/data/snapshots/restore away.
+    snapshot_info = _write_pre_wipe_snapshot()
     counts: dict[str, int] = {}
     now = time.time()
     with tx() as conn:
@@ -354,5 +637,13 @@ def delete_all(
         log.warning("wipe: filesystem cleanup partial failure: %s", exc)
 
     # audit AFTER wipe so the record survives (audit_log was just cleared)
-    audit("data_wipe", "data", None, counts=counts, fs_counts=fs_counts)
-    return {"ok": True, "data": {"counts": counts, "fs_counts": fs_counts}}
+    audit("data_wipe", "data", None, counts=counts, fs_counts=fs_counts,
+          snapshot=snapshot_info)
+    return {
+        "ok": True,
+        "data": {
+            "counts": counts,
+            "fs_counts": fs_counts,
+            "snapshot": snapshot_info,
+        },
+    }

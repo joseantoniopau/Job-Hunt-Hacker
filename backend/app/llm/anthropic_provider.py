@@ -7,11 +7,19 @@ Headers: x-api-key, anthropic-version: 2023-06-01, content-type: application/jso
 from __future__ import annotations
 
 import logging
+import time
 
 import httpx
 
 from ..config import settings
-from .base import LLMProvider
+from .base import (
+    LLMProvider,
+    LLMResult,
+    STATUS_EMPTY,
+    STATUS_ERROR,
+    STATUS_OK,
+    STATUS_RATE_LIMITED,
+)
 
 log = logging.getLogger("jhh.llm.anthropic")
 
@@ -30,9 +38,25 @@ class AnthropicProvider(LLMProvider):
         self.timeout = _DEFAULT_TIMEOUT
 
     def complete(self, system: str, user: str, max_tokens: int = 2048, temperature: float = 0.3) -> str:
+        # Backward-compat path: delegate to status-aware impl and return only the text.
+        return self.complete_with_status(system, user, max_tokens=max_tokens, temperature=temperature).text
+
+    def complete_with_status(
+        self,
+        system: str,
+        user: str,
+        max_tokens: int = 2048,
+        temperature: float = 0.3,
+    ) -> LLMResult:
+        t0 = time.perf_counter()
         if not self.api_key:
             log.warning("anthropic provider invoked with no API key")
-            return ""
+            return LLMResult(
+                text="",
+                status=STATUS_ERROR,
+                latency_ms=int((time.perf_counter() - t0) * 1000),
+                error="missing ANTHROPIC_API_KEY",
+            )
         headers = {
             "x-api-key": self.api_key,
             "anthropic-version": _API_VERSION,
@@ -48,16 +72,30 @@ class AnthropicProvider(LLMProvider):
         try:
             with httpx.Client(timeout=self.timeout) as client:
                 r = client.post(_ENDPOINT, headers=headers, json=payload)
+                latency = int((time.perf_counter() - t0) * 1000)
+                if r.status_code == 429:
+                    detail = r.text[:500]
+                    log.warning("anthropic 429: %s", detail)
+                    return LLMResult(text="", status=STATUS_RATE_LIMITED, latency_ms=latency, error=detail)
+                if 500 <= r.status_code < 600:
+                    detail = r.text[:500]
+                    log.warning("anthropic %d: %s", r.status_code, detail)
+                    return LLMResult(text="", status=STATUS_ERROR, latency_ms=latency, error=f"http {r.status_code}: {detail}")
                 if r.status_code >= 400:
-                    log.warning("anthropic %d: %s", r.status_code, r.text[:500])
-                    return ""
+                    detail = r.text[:500]
+                    log.warning("anthropic %d: %s", r.status_code, detail)
+                    return LLMResult(text="", status=STATUS_ERROR, latency_ms=latency, error=f"http {r.status_code}: {detail}")
                 data = r.json()
                 content = data.get("content") or []
                 if content and isinstance(content, list):
                     first = content[0]
                     if isinstance(first, dict):
-                        return (first.get("text") or "").strip()
-                return ""
+                        text = (first.get("text") or "").strip()
+                        if text:
+                            return LLMResult(text=text, status=STATUS_OK, latency_ms=latency)
+                        return LLMResult(text="", status=STATUS_EMPTY, latency_ms=latency)
+                return LLMResult(text="", status=STATUS_EMPTY, latency_ms=latency)
         except Exception as e:  # noqa: BLE001
+            latency = int((time.perf_counter() - t0) * 1000)
             log.warning("anthropic call failed: %s", e)
-            return ""
+            return LLMResult(text="", status=STATUS_ERROR, latency_ms=latency, error=f"{type(e).__name__}: {e}")

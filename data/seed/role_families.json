@@ -1,0 +1,155 @@
+{
+  "_description": "Canonical role-family definitions used across matching/scoring. Each family lists substring keywords (>=4 chars or multi-word -> substring match) and short whole-word abbreviations. Used by backend.app.matching.scorer._ROLE_FAMILIES at runtime as the SOT but is also loaded by other modules (salary intelligence, company research) to classify roles consistently.",
+  "families": {
+    "engineering": {
+      "keywords": [
+        "engineer", "developer", "swe", "sde", "programmer", "architect",
+        "tech lead", "staff", "principal", "sre", "devops", "infrastructure",
+        "platform", "backend", "frontend", "fullstack", "full-stack", "full stack",
+        "ios", "android", "mobile", "embedded", "firmware", "cloud"
+      ]
+    },
+    "data": {
+      "keywords": [
+        "data scientist", "data engineer", "machine learning", "ml engineer",
+        "ai engineer", "analytics engineer", "research scientist", "applied scientist",
+        "data analyst", "bi analyst", "statistician"
+      ]
+    },
+    "design": {
+      "keywords": [
+        "designer", "ux", "ui ", "product design", "visual design",
+        "graphic design", "brand design", "design lead"
+      ]
+    },
+    "product": {
+      "keywords": [
+        "product manager", "product owner", "program manager",
+        "product lead", "head of product",
+        "pm", "tpm"
+      ]
+    },
+    "marketing": {
+      "keywords": [
+        "marketing", "growth", "demand gen", "content marketing", "seo",
+        "ppc", "brand strategist", "social media", "community manager"
+      ]
+    },
+    "sales": {
+      "keywords": [
+        "sales", "account executive", "ae ", "bdr", "sdr", "business development",
+        "customer success", "account manager"
+      ]
+    },
+    "writing": {
+      "keywords": [
+        "copywriter", "writer", "content strategist", "editor", "technical writer",
+        "journalist"
+      ]
+    },
+    "operations": {
+      "keywords": [
+        "operations", "people ops", "hr ", "recruiter", "talent acquisition",
+        "controller", "executive assistant", "admin assistant", "office manager"
+      ]
+    },
+    "support": {
+      "keywords": [
+        "customer support", "support specialist", "support engineer",
+        "help desk", "service desk"
+      ]
+    },
+    "security": {
+      "keywords": [
+        "security engineer", "pentest", "appsec", "soc analyst", "ciso",
+        "infosec", "iam ", "grc"
+      ]
+    },
+    "exec": {
+      "keywords": [
+        "ceo", "cto", "cfo", "coo", "cmo", "vp ", "vice president",
+        "chief ", "founder", "managing director"
+      ]
+    },
+    "legal": {
+      "keywords": [
+        "attorney", "paralegal", "counsel", "general counsel", "compliance officer",
+        "contract analyst", "contracts manager", "litigation", "associate attorney",
+        "in-house counsel", "legal assistant", "law clerk", "law firm",
+        "regulatory affairs", "corporate counsel", "intellectual property",
+        "patent agent", "patent attorney", "mediator", "arbitrator"
+      ]
+    },
+    "medical": {
+      "keywords": [
+        "nurse", "registered nurse", " rn ", "physician", "doctor", " md ",
+        " np ", " pa ", "medical assistant", "pharmacist", "therapist",
+        "physical therapist", "occupational therapist", "respiratory therapist",
+        "radiologist", "radiology tech", "phlebotomist", "sonographer",
+        "lpn", "cna", "clinical", "clinician", "nurse practitioner",
+        "physician assistant", "surgeon", "anesthesiologist", "pediatrician",
+        "dentist", "hygienist", "optometrist", "chiropractor", "midwife",
+        "paramedic", "emt", "medical coder", "health information"
+      ]
+    },
+    "finance": {
+      "keywords": [
+        "financial analyst", " cpa ", "controller", "bookkeeper", "treasurer",
+        " cfa ", "actuary", "investment banker", "trader", "fund manager",
+        "portfolio manager", "underwriter", "loan officer", "auditor",
+        "tax accountant", "tax manager", "fp&a", "financial planner",
+        "wealth manager", "credit analyst", "risk analyst", "compliance analyst",
+        "financial advisor", "investment analyst"
+      ]
+    },
+    "education": {
+      "keywords": [
+        "teacher", "professor", "instructor", "principal", "tutor",
+        "curriculum designer", "curriculum specialist", "school counselor",
+        "academic advisor", "lecturer", "adjunct", "teaching assistant",
+        "instructional designer", "education coordinator", "dean",
+        "registrar", "preschool teacher", "elementary teacher",
+        "high school teacher", "special education", "esl teacher"
+      ]
+    },
+    "creative": {
+      "keywords": [
+        "photographer", "videographer", "illustrator", "animator",
+        "art director", "creative director", "visual artist", "concept artist",
+        "graphic artist", "motion designer", "film editor", "video editor",
+        "sound designer", "music producer", "composer", "stylist",
+        "make-up artist", "costume designer", "set designer", "storyboard artist"
+      ]
+    },
+    "hospitality": {
+      "keywords": [
+        "chef", "cook", "sous chef", "executive chef", "pastry chef",
+        "server", "waiter", "waitress", "bartender", "barista",
+        "hotel manager", "front desk", "concierge", "sommelier",
+        "restaurant manager", "banquet manager", "hostess", "housekeeper",
+        "valet", "event coordinator", "catering manager", "bell hop",
+        "guest services"
+      ]
+    },
+    "trades": {
+      "keywords": [
+        "electrician", "plumber", "hvac", "carpenter", "welder", "mechanic",
+        "machinist", "mason", "roofer", "painter", "drywall", "framer",
+        "ironworker", "pipefitter", "boilermaker", "millwright",
+        "auto mechanic", "diesel mechanic", "heavy equipment operator",
+        "construction worker", "construction manager", "general contractor",
+        "foreman", "journeyman", "apprentice"
+      ]
+    },
+    "science": {
+      "keywords": [
+        "researcher", "scientist", "lab tech", "laboratory technician",
+        "postdoc", "research associate", "research fellow", "principal investigator",
+        "biologist", "chemist", "physicist", "geologist", "ecologist",
+        "microbiologist", "biochemist", "epidemiologist", "geneticist",
+        "neuroscientist", "research analyst", "field researcher",
+        "experimental scientist"
+      ]
+    }
+  }
+}

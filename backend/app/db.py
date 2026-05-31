@@ -357,6 +357,57 @@ SCHEMA = [
         last_error TEXT,
         config_json TEXT
     )""",
+
+    """CREATE TABLE IF NOT EXISTS gap_event (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ts REAL NOT NULL,
+        job_id INTEGER,
+        missing_keyword TEXT NOT NULL,
+        FOREIGN KEY (job_id) REFERENCES job_posting(id) ON DELETE CASCADE
+    )""",
+    """CREATE INDEX IF NOT EXISTS idx_gap_event_ts ON gap_event(ts)""",
+    """CREATE INDEX IF NOT EXISTS idx_gap_event_keyword ON gap_event(missing_keyword)""",
+    """CREATE INDEX IF NOT EXISTS idx_gap_event_job ON gap_event(job_id)""",
+
+    """CREATE TABLE IF NOT EXISTS effectiveness_event (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ts REAL NOT NULL,
+        application_id INTEGER,
+        resume_id INTEGER,
+        outcome TEXT NOT NULL,
+        notes TEXT,
+        FOREIGN KEY (application_id) REFERENCES application(id) ON DELETE CASCADE
+    )""",
+    """CREATE INDEX IF NOT EXISTS idx_eff_event_ts ON effectiveness_event(ts)""",
+    """CREATE INDEX IF NOT EXISTS idx_eff_event_resume ON effectiveness_event(resume_id)""",
+    """CREATE INDEX IF NOT EXISTS idx_eff_event_outcome ON effectiveness_event(outcome)""",
+
+    # ---- Headhunter mode tables (additive) ----
+    """CREATE TABLE IF NOT EXISTS connection (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        relationship TEXT,
+        company TEXT,
+        role TEXT,
+        contact TEXT,
+        notes TEXT,
+        last_contacted_at REAL,
+        created_at REAL,
+        updated_at REAL
+    )""",
+    """CREATE INDEX IF NOT EXISTS idx_connection_company ON connection(company)""",
+    """CREATE INDEX IF NOT EXISTS idx_connection_name ON connection(name)""",
+
+    """CREATE TABLE IF NOT EXISTS connection_company (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        connection_id INTEGER NOT NULL,
+        company TEXT NOT NULL,
+        role TEXT,
+        created_at REAL,
+        FOREIGN KEY (connection_id) REFERENCES connection(id) ON DELETE CASCADE
+    )""",
+    """CREATE INDEX IF NOT EXISTS idx_connection_company_conn ON connection_company(connection_id)""",
+    """CREATE INDEX IF NOT EXISTS idx_connection_company_co ON connection_company(company)""",
 ]
 
 

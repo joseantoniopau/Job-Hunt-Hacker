@@ -11,6 +11,7 @@ from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from ..config import settings
 from ..db import audit
 from ..models.schemas import OK, TextIngestRequest, URLIngestRequest
+from ..security.uploads import validate_upload
 from ..services import (
     career_vault,
     document_parser,
@@ -37,9 +38,13 @@ async def upload(
     """Accept a file, parse it, store as evidence_source, extract claims."""
     if not file or not file.filename:
         raise HTTPException(400, "no file provided")
+    # Cheap header check before consuming bytes.
+    validate_upload(file, ("pdf", "docx", "doc", "md", "txt", "rtf", "html"))
     raw = await file.read()
     if not raw:
         raise HTTPException(400, "empty file")
+    # Safety-net byte-count check + MIME probe now that we have the body.
+    validate_upload(file, ("pdf", "docx", "doc", "md", "txt", "rtf", "html"), raw_bytes=raw)
 
     safe_name = _safe_filename(file.filename)
     dest = Path(settings.uploads_dir) / f"{int(time.time())}_{safe_name}"

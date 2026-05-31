@@ -29,9 +29,10 @@ import logging
 import time
 from typing import Any
 
-from fastapi import APIRouter, File, Form, UploadFile
+from fastapi import APIRouter, File, Form, Request, UploadFile
 
 from ..db import audit, get_conn
+from ..security.rate_limit import rate_limit
 
 log = logging.getLogger("jhh.autopilot")
 
@@ -39,7 +40,9 @@ router = APIRouter(prefix="/api", tags=["autopilot"])
 
 
 @router.post("/autopilot/start")
+@rate_limit("10/minute")
 async def autopilot_start(
+    request: Request = None,  # type: ignore[assignment]
     resume_file: UploadFile | None = File(default=None),
     linkedin_text: str | None = Form(default=None),
     linkedin_url: str | None = Form(default=None),

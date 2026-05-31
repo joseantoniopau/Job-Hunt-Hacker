@@ -291,7 +291,6 @@ _ROLE_FAMILIES: dict[str, set[str]] = {
     },
     "operations": {
         "operations", "people ops", "hr ", "recruiter", "talent acquisition",
-        "finance", "accounting", "controller", "legal counsel", "paralegal",
         "executive assistant", "admin assistant", "office manager",
     },
     "support": {
@@ -305,6 +304,71 @@ _ROLE_FAMILIES: dict[str, set[str]] = {
     "exec": {
         "ceo", "cto", "cfo", "coo", "cmo", "vp ", "vice president",
         "chief ", "founder", "managing director",
+    },
+    # --- non-tech families (agnostic mode) ---
+    "legal": {
+        "attorney", "paralegal", "counsel", "general counsel", "compliance officer",
+        "contract analyst", "contracts manager", "litigation", "associate attorney",
+        "in-house counsel", "legal assistant", "law clerk",
+        "regulatory affairs", "corporate counsel", "intellectual property",
+        "patent agent", "patent attorney", "mediator", "arbitrator",
+    },
+    "medical": {
+        "nurse", "registered nurse", " rn ", "physician", "doctor", " md ",
+        " np ", " pa ", "medical assistant", "pharmacist", "therapist",
+        "physical therapist", "occupational therapist", "respiratory therapist",
+        "radiologist", "radiology tech", "phlebotomist", "sonographer",
+        "lpn", "cna", "clinical", "clinician", "nurse practitioner",
+        "physician assistant", "surgeon", "anesthesiologist", "pediatrician",
+        "dentist", "hygienist", "optometrist", "chiropractor", "midwife",
+        "paramedic", "emt", "medical coder",
+    },
+    "finance": {
+        "financial analyst", " cpa ", "controller", "bookkeeper", "treasurer",
+        " cfa ", "actuary", "investment banker", "trader", "fund manager",
+        "portfolio manager", "underwriter", "loan officer", "auditor",
+        "tax accountant", "tax manager", "fp&a", "financial planner",
+        "wealth manager", "credit analyst", "risk analyst", "compliance analyst",
+        "financial advisor", "investment analyst", "accountant",
+    },
+    "education": {
+        "teacher", "professor", "instructor", "principal", "tutor",
+        "curriculum designer", "curriculum specialist", "school counselor",
+        "academic advisor", "lecturer", "adjunct", "teaching assistant",
+        "instructional designer", "education coordinator", "dean",
+        "registrar", "preschool teacher", "elementary teacher",
+        "high school teacher", "special education", "esl teacher",
+    },
+    "creative": {
+        "photographer", "videographer", "illustrator", "animator",
+        "art director", "creative director", "visual artist", "concept artist",
+        "graphic artist", "motion designer", "film editor", "video editor",
+        "sound designer", "music producer", "composer", "stylist",
+        "make-up artist", "costume designer", "set designer", "storyboard artist",
+    },
+    "hospitality": {
+        "chef", "cook", "sous chef", "executive chef", "pastry chef",
+        "server", "waiter", "waitress", "bartender", "barista",
+        "hotel manager", "front desk", "concierge", "sommelier",
+        "restaurant manager", "banquet manager", "hostess", "housekeeper",
+        "valet", "event coordinator", "catering manager", "bell hop",
+        "guest services",
+    },
+    "trades": {
+        "electrician", "plumber", "hvac", "carpenter", "welder", "mechanic",
+        "machinist", "mason", "roofer", "painter", "drywall", "framer",
+        "ironworker", "pipefitter", "boilermaker", "millwright",
+        "auto mechanic", "diesel mechanic", "heavy equipment operator",
+        "construction worker", "construction manager", "general contractor",
+        "foreman", "journeyman", "apprentice",
+    },
+    "science": {
+        "researcher", "scientist", "lab tech", "laboratory technician",
+        "postdoc", "research associate", "research fellow", "principal investigator",
+        "biologist", "chemist", "physicist", "geologist", "ecologist",
+        "microbiologist", "biochemist", "epidemiologist", "geneticist",
+        "neuroscientist", "research analyst", "field researcher",
+        "experimental scientist",
     },
 }
 

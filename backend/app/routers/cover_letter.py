@@ -5,12 +5,13 @@ import logging
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse
 
 from ..config import settings
 from ..db import get_conn, row_to_dict
 from ..models.schemas import CoverLetterRequest
+from ..security.rate_limit import rate_limit
 from ..tailoring import cover_letter as cover_letter_svc
 from ..utils.text import slug
 
@@ -20,7 +21,8 @@ router = APIRouter(prefix="/api", tags=["cover_letter"])
 
 
 @router.post("/cover-letter")
-def generate(body: CoverLetterRequest) -> dict:
+@rate_limit("10/minute")
+def generate(request: Request, body: CoverLetterRequest) -> dict:
     try:
         result = cover_letter_svc.generate(job_id=body.job_id, tone=body.tone)
     except ValueError as e:

@@ -14,10 +14,12 @@ import time
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 
 from ..db import get_conn, row_to_dict, audit
 from ..models.schemas import UserProfileIn, OK
+from ..security.rate_limit import rate_limit
+from ..security.uploads import validate_upload
 from ..utils.text import dedupe_preserve_order
 
 log = logging.getLogger("jhh.profile")
@@ -49,6 +51,70 @@ def get_profile() -> dict:
     if row is None:
         raise HTTPException(404, "profile row missing")
     return {"ok": True, "data": row_to_dict(row)}
+
+
+# ----- profile completeness ----------------------------------------------
+
+# Fields that count toward the completeness score. Each materially
+# improves match quality or downstream tailoring.
+_COMPLETENESS_FIELDS: list[str] = [
+    "name", "email", "target_titles", "target_keywords",
+    "preferred_locations", "employment_types", "seniority_targets",
+    "currency", "mode", "minimum_salary", "location",
+]
+
+_COMPLETENESS_HINTS: dict[str, str] = {
+    "name": "Add your full name so resumes and emails are signed.",
+    "email": "Add a contact email so recruiters can reach you.",
+    "target_titles": "List 2-5 job titles you want — drives every search.",
+    "target_keywords": "List your top 8-12 skills/keywords to match jobs.",
+    "preferred_locations": "Add at least one preferred location (or 'Remote').",
+    "employment_types": "Specify employment types (full-time, contract, etc.).",
+    "seniority_targets": "Pick the seniority levels you target (e.g. senior, staff).",
+    "currency": "Set a salary currency so offers normalize correctly.",
+    "mode": "Pick an operating mode (assisted, manual, autopilot).",
+    "minimum_salary": "Add a minimum salary so under-paying jobs get filtered.",
+    "location": "Add your current location to power local/relocation logic.",
+}
+
+
+def _is_filled(field: str, value) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return value.strip() != ""
+    if isinstance(value, (list, dict, tuple, set)):
+        return len(value) > 0
+    if isinstance(value, (int, float)):
+        return value != 0
+    return True
+
+
+def profile_completeness(row: dict) -> dict:
+    """Score the profile against `_COMPLETENESS_FIELDS`. Returns
+    {score: 0-100, missing: [...], filled: [...], suggestions: [...]}.
+    """
+    row = row or {}
+    filled: list[str] = []
+    missing: list[str] = []
+    for f in _COMPLETENESS_FIELDS:
+        if _is_filled(f, row.get(f)):
+            filled.append(f)
+        else:
+            missing.append(f)
+    total = len(_COMPLETENESS_FIELDS) or 1
+    score = int(round(100 * len(filled) / total))
+    suggestions = [_COMPLETENESS_HINTS.get(f, f"Set {f}.") for f in missing]
+    return {"score": score, "missing": missing, "filled": filled,
+            "suggestions": suggestions}
+
+
+@router.get("/profile/completeness")
+def get_profile_completeness() -> dict:
+    conn = get_conn()
+    row = conn.execute("SELECT * FROM user_profile WHERE id = 1").fetchone()
+    data = row_to_dict(row) or {}
+    return {"ok": True, "data": profile_completeness(data)}
 
 
 @router.put("/profile")
@@ -87,7 +153,9 @@ def put_profile(body: UserProfileIn) -> OK:
 # ----- infer endpoint -----
 
 @router.post("/profile/infer")
+@rate_limit("10/minute")
 async def infer_profile(
+    request: Request = None,  # type: ignore[assignment]
     resume_file: UploadFile | None = File(default=None),
     linkedin_text: str | None = Form(default=None),
     linkedin_html: str | None = Form(default=None),
@@ -99,6 +167,10 @@ async def infer_profile(
     UserProfileIn. Nothing is persisted. Caller decides what to keep,
     edits it, and POSTs to PUT /api/profile to save.
     """
+    # Enforce upload caps on the resume file BEFORE we read bytes — header
+    # check is cheap and catches the obvious attack.
+    if resume_file is not None and getattr(resume_file, "filename", None):
+        validate_upload(resume_file, ("pdf", "docx", "doc", "md", "txt", "html"))
     inferred_fields: dict[str, Any] = {}
     inferred_meta: dict[str, list[str]] = {}   # field_name -> [sources]
     notes: list[str] = []
@@ -249,6 +321,9 @@ async def _parse_resume_upload(upload: UploadFile) -> dict[str, Any]:
         suffix = "." + name.rsplit(".", 1)[1].lower()
 
     raw = await upload.read()
+    # Safety-net size check now that we know the real byte count. Header
+    # might have been absent or lied; this is the truth.
+    validate_upload(upload, ("pdf", "docx", "doc", "md", "txt", "html"), raw_bytes=raw)
     with tempfile.NamedTemporaryFile(prefix="jhh_infer_", suffix=suffix, delete=False) as tmp:
         tmp.write(raw)
         tmp_path = Path(tmp.name)

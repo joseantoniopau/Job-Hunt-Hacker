@@ -6,11 +6,19 @@ LiteLLM, Together, etc.) by setting OPENAI_BASE_URL.
 from __future__ import annotations
 
 import logging
+import time
 
 import httpx
 
 from ..config import settings
-from .base import LLMProvider
+from .base import (
+    LLMProvider,
+    LLMResult,
+    STATUS_EMPTY,
+    STATUS_ERROR,
+    STATUS_OK,
+    STATUS_RATE_LIMITED,
+)
 
 log = logging.getLogger("jhh.llm.openai")
 
@@ -29,6 +37,16 @@ class OpenAIProvider(LLMProvider):
         self.timeout = _DEFAULT_TIMEOUT
 
     def complete(self, system: str, user: str, max_tokens: int = 2048, temperature: float = 0.3) -> str:
+        return self.complete_with_status(system, user, max_tokens=max_tokens, temperature=temperature).text
+
+    def complete_with_status(
+        self,
+        system: str,
+        user: str,
+        max_tokens: int = 2048,
+        temperature: float = 0.3,
+    ) -> LLMResult:
+        t0 = time.perf_counter()
         url = f"{self.base_url}/chat/completions"
         headers = {"content-type": "application/json"}
         if self.api_key:
@@ -45,15 +63,29 @@ class OpenAIProvider(LLMProvider):
         try:
             with httpx.Client(timeout=self.timeout) as client:
                 r = client.post(url, headers=headers, json=payload)
+                latency = int((time.perf_counter() - t0) * 1000)
+                if r.status_code == 429:
+                    detail = r.text[:500]
+                    log.warning("openai 429: %s", detail)
+                    return LLMResult(text="", status=STATUS_RATE_LIMITED, latency_ms=latency, error=detail)
+                if 500 <= r.status_code < 600:
+                    detail = r.text[:500]
+                    log.warning("openai %d: %s", r.status_code, detail)
+                    return LLMResult(text="", status=STATUS_ERROR, latency_ms=latency, error=f"http {r.status_code}: {detail}")
                 if r.status_code >= 400:
-                    log.warning("openai %d: %s", r.status_code, r.text[:500])
-                    return ""
+                    detail = r.text[:500]
+                    log.warning("openai %d: %s", r.status_code, detail)
+                    return LLMResult(text="", status=STATUS_ERROR, latency_ms=latency, error=f"http {r.status_code}: {detail}")
                 data = r.json()
                 choices = data.get("choices") or []
                 if choices:
                     msg = (choices[0] or {}).get("message") or {}
-                    return (msg.get("content") or "").strip()
-                return ""
+                    text = (msg.get("content") or "").strip()
+                    if text:
+                        return LLMResult(text=text, status=STATUS_OK, latency_ms=latency)
+                    return LLMResult(text="", status=STATUS_EMPTY, latency_ms=latency)
+                return LLMResult(text="", status=STATUS_EMPTY, latency_ms=latency)
         except Exception as e:  # noqa: BLE001
+            latency = int((time.perf_counter() - t0) * 1000)
             log.warning("openai call failed: %s", e)
-            return ""
+            return LLMResult(text="", status=STATUS_ERROR, latency_ms=latency, error=f"{type(e).__name__}: {e}")

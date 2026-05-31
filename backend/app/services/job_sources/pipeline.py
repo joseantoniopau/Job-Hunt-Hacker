@@ -9,25 +9,46 @@ from dataclasses import asdict
 from typing import Any
 
 from ...db import audit, get_conn, row_to_dict, tx
+from . import cache as _cache
 from .base import JobRecord, JobSearchQuery, REGISTRY
+from .retry import wrap_with_retry
 
 log = logging.getLogger("jhh.sources.pipeline")
 
 _ADAPTER_TIMEOUT_S = 30
 _MAX_WORKERS = 8
 
+# Per-adapter cache TTLs. JobSpy hits LinkedIn/Indeed which rate-limit
+# aggressively, so we cache shorter and re-fetch less.
+_CACHE_TTL_OVERRIDES: dict[str, int] = {"jobspy": 300}
+_CACHE_TTL_DEFAULT = 3600
+
+
+def _ttl_for(name: str) -> int:
+    return _CACHE_TTL_OVERRIDES.get(name, _CACHE_TTL_DEFAULT)
+
 
 # ---------------------------------------------------------------- search ----
 
-def _run_one(name: str, adapter: Any, q: JobSearchQuery) -> tuple[str, list[JobRecord], str | None]:
+def _run_one(name: str, adapter: Any, q: JobSearchQuery) -> tuple[str, list[JobRecord], str | None, bool]:
+    """Return (name, records, error, cache_hit)."""
     try:
         if not adapter.healthy():
-            return name, [], "unhealthy"
-        recs = adapter.search(q) or []
-        return name, list(recs), None
+            return name, [], "unhealthy", False
+        cached = _cache.get(name, q)
+        if cached is not None:
+            return name, list(cached), None, True
+        retrying = wrap_with_retry(adapter.search)
+        recs = retrying(q) or []
+        recs = list(recs)
+        try:
+            _cache.set(name, q, recs, ttl=_ttl_for(name))
+        except Exception as exc:  # noqa: BLE001
+            log.debug("cache write skipped for %s: %s", name, exc)
+        return name, recs, None, False
     except Exception as exc:  # noqa: BLE001
         log.warning("adapter %s raised: %s", name, exc)
-        return name, [], f"{type(exc).__name__}: {exc}"
+        return name, [], f"{type(exc).__name__}: {exc}", False
 
 
 def _is_source_disabled(source: str) -> bool:
@@ -64,6 +85,7 @@ def search_all(q: JobSearchQuery, sites: list[str]) -> dict:
     """
     records: list[JobRecord] = []
     per_source: dict[str, int] = {}
+    cache_hits: dict[str, bool] = {}
     errors: dict[str, str] = {}
 
     requested = [s for s in (sites or []) if s in REGISTRY]
@@ -72,7 +94,7 @@ def search_all(q: JobSearchQuery, sites: list[str]) -> dict:
         requested = [n for n, a in REGISTRY.items() if _safe_healthy(a)]
 
     if not requested:
-        return {"records": [], "per_source": {}, "errors": {}}
+        return {"records": [], "per_source": {}, "errors": {}, "cache_hits": {}}
 
     enabled = [n for n in requested if not _is_source_disabled(n)]
     for n in set(requested) - set(enabled):
@@ -85,7 +107,7 @@ def search_all(q: JobSearchQuery, sites: list[str]) -> dict:
         for fut in cf.as_completed(futures):
             name = futures[fut]
             try:
-                _, recs, err = fut.result(timeout=_ADAPTER_TIMEOUT_S)
+                _, recs, err, cache_hit = fut.result(timeout=_ADAPTER_TIMEOUT_S)
             except cf.TimeoutError:
                 errors[name] = "timeout"
                 _mark_source(name, "timeout")
@@ -97,6 +119,7 @@ def search_all(q: JobSearchQuery, sites: list[str]) -> dict:
             if err:
                 errors[name] = err
             per_source[name] = len(recs)
+            cache_hits[name] = bool(cache_hit)
             records.extend(recs)
             _mark_source(name, err)
 
@@ -107,12 +130,18 @@ def search_all(q: JobSearchQuery, sites: list[str]) -> dict:
             None,
             query=asdict(q),
             per_source=per_source,
+            cache_hits=cache_hits,
             errors=errors,
         )
     except Exception as exc:  # noqa: BLE001
         log.debug("audit failed: %s", exc)
 
-    return {"records": records, "per_source": per_source, "errors": errors}
+    return {
+        "records": records,
+        "per_source": per_source,
+        "cache_hits": cache_hits,
+        "errors": errors,
+    }
 
 
 def _safe_healthy(adapter: Any) -> bool:
