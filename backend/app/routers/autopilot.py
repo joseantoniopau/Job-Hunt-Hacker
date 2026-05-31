@@ -53,6 +53,13 @@ async def autopilot_start(
     daily_recurrence: bool = Form(default=True),
     sites: str = Form(default="indeed,glassdoor,google,greenhouse,lever,ashby,remotive,wwr"),
 ) -> dict:
+    # Clamp degenerate inputs — negative or absurdly large values would
+    # otherwise garble downstream slicing / search-results-per-site.
+    tailor_top = max(0, min(int(tailor_top), 50))
+    packet_top = max(0, min(int(packet_top), 25))
+    search_results = max(1, min(int(search_results), 200))
+    search_hours_old = max(1, min(int(search_hours_old), 8760))
+    min_score = max(0, min(int(min_score), 100))
     started = time.time()
     summary: dict[str, Any] = {
         "steps": [],
@@ -99,6 +106,7 @@ async def autopilot_start(
         inf = await profile_router.infer_profile(
             resume_file=resume_file,
             linkedin_text=_s(linkedin_text),
+            linkedin_html=None,                  # autopilot never supplies HTML — pass None so it skips parsing
             linkedin_url=_s(linkedin_url),
             github_url=_s(github_url),
             portfolio_url=_s(portfolio_url),
@@ -205,7 +213,32 @@ async def autopilot_start(
         pass
 
     primary_query = targets[0] if targets else "engineer"
-    sites_list = [s.strip() for s in (sites or "").split(",") if s.strip()]
+    raw_sites = [s.strip() for s in (sites or "").split(",") if s.strip()]
+
+    # Expand sites the same way /api/search does: jobspy-supported scraper
+    # sites collapse to the "jobspy" adapter; other names must be real
+    # adapter ids. Unknown names get reported as errors instead of
+    # silently falling back to "every adapter".
+    try:
+        from ..services.job_sources import REGISTRY
+        JOBSPY_SITES = {"indeed", "glassdoor", "google", "linkedin",
+                        "zip_recruiter", "bayt", "naukri", "bdjobs"}
+        sites_list: list[str] = []
+        unknown_sites: list[str] = []
+        for s in raw_sites:
+            if s in JOBSPY_SITES:
+                if "jobspy" not in sites_list:
+                    sites_list.append("jobspy")
+            elif s in REGISTRY:
+                if s not in sites_list:
+                    sites_list.append(s)
+            else:
+                unknown_sites.append(s)
+        if not sites_list:
+            sites_list = list(REGISTRY.keys())  # last resort
+    except Exception:
+        sites_list = raw_sites
+        unknown_sites = []
 
     try:
         from ..services.job_sources.pipeline import search_all, persist
@@ -218,6 +251,9 @@ async def autopilot_start(
             hours_old=int(search_hours_old),
         )
         sr = search_all(q, sites=sites_list)
+        # Surface any unknown sites the user requested so they're not silently dropped
+        for s in unknown_sites:
+            sr.setdefault("errors", {})[s] = "unknown_site"
         pr = persist(sr.get("records", []))
         summary["search"]["discovered"] = len(sr.get("records", []))
         summary["search"]["inserted"] = int(pr.get("inserted", 0))
@@ -367,21 +403,38 @@ async def autopilot_start(
                 "hours_old": int(search_hours_old),
             }
             conn = get_conn()
-            cur = conn.execute(
-                "INSERT INTO saved_search (label, query_json, frequency_hours, enabled, created_at) "
-                "VALUES (?, ?, ?, 1, ?)",
-                (label, json.dumps(query_blob), 24, time.time()),
-            )
-            sid = int(cur.lastrowid)
+            # Dedupe by label: if a saved search with this exact label
+            # already exists (from a prior autopilot run on the same target),
+            # update its query_blob in place instead of creating a duplicate.
+            existing = conn.execute(
+                "SELECT id FROM saved_search WHERE label = ? LIMIT 1",
+                (label,),
+            ).fetchone()
+            if existing:
+                sid = int(existing[0])
+                conn.execute(
+                    "UPDATE saved_search SET query_json = ?, frequency_hours = ?, "
+                    "enabled = 1 WHERE id = ?",
+                    (json.dumps(query_blob), 24, sid),
+                )
+                created = False
+            else:
+                cur = conn.execute(
+                    "INSERT INTO saved_search (label, query_json, frequency_hours, enabled, created_at) "
+                    "VALUES (?, ?, ?, 1, ?)",
+                    (label, json.dumps(query_blob), 24, time.time()),
+                )
+                sid = int(cur.lastrowid)
+                created = True
             try:
                 sched.register_saved_searches()
             except Exception as exc:  # noqa: BLE001
                 log.debug("scheduler register hint failed: %s", exc)
-            summary["saved_search"]["created"] = True
+            summary["saved_search"]["created"] = created
             summary["saved_search"]["id"] = sid
             summary["saved_search"]["label"] = label
             summary["steps"].append({"name": "saved_search_registered", "status": "ok",
-                                     "detail": f"id={sid} runs every 24h"})
+                                     "detail": f"id={sid} runs every 24h ({'created' if created else 'updated existing'})"})
         except Exception as exc:  # noqa: BLE001
             log.warning("autopilot saved-search step failed: %s", exc)
             summary["steps"].append({"name": "saved_search_registered", "status": "error",

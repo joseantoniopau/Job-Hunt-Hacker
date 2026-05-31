@@ -235,14 +235,26 @@ def get_job(job_id: int) -> dict | None:
 
 
 def update_status(job_id: int, status: str) -> bool:
+    cascade_apps = 0
     with tx() as conn:
         cur = conn.execute(
             "UPDATE job_posting SET status = ? WHERE id = ?", (status, int(job_id))
         )
         ok = cur.rowcount > 0
+        # Cascade: when a job is archived/deleted, also archive its active
+        # applications so they don't render as "ghost" cards in the kanban
+        # with a job that no longer exists in search results.
+        if ok and status in ("archived", "deleted"):
+            cur2 = conn.execute(
+                "UPDATE application SET status = 'archived' "
+                "WHERE job_id = ? AND status NOT IN ('archived', 'rejected', 'offer')",
+                (int(job_id),),
+            )
+            cascade_apps = cur2.rowcount or 0
     if ok:
         try:
-            audit("job_status_update", "job_posting", int(job_id), status=status)
+            audit("job_status_update", "job_posting", int(job_id),
+                  status=status, cascaded_applications=cascade_apps)
         except Exception:
             pass
     return ok

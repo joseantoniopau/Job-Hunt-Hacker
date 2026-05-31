@@ -7,7 +7,7 @@
 
 set -e
 
-ROOT="/Users/japa/Desktop/Job-Hunt-Hacker"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SKILLS_DIR="$HOME/.claude/skills"
 SKILL_LINK="$SKILLS_DIR/job-hunt-hacker"
 PYTHON_BIN="$(command -v python3 || command -v python)"

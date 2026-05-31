@@ -2,7 +2,7 @@
 # run.sh — launch the Job Hunt Hacker server.
 
 set -e
-ROOT="/Users/japa/Desktop/Job-Hunt-Hacker"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT"
 
 HOST="${JHH_HOST:-127.0.0.1}"

@@ -63,13 +63,15 @@ curl -s -X POST http://127.0.0.1:8731/api/search \
   }'
 ```
 
-The response includes scored results with explanation. Pipe into rank if needed:
+The response includes scored results with explanation. To re-score a subset of already-discovered jobs (e.g. after the user updates their profile or vault), use:
 
 ```
-curl -s -X POST http://127.0.0.1:8731/api/rank \
+curl -s -X POST http://127.0.0.1:8731/api/jobs/rescore \
   -H 'Content-Type: application/json' \
-  -d '{"job_ids":[...], "weights":{"skills":0.3,"keywords":0.2,...}}'
+  -d '{"job_ids":[123, 456, 789]}'
 ```
+
+Scoring weights are persisted on the user profile under `scoring_weights_json` and applied automatically; update them via `PUT /api/profile` with that field.
 
 **ALWAYS** fan out across enabled sources by default. **NEVER** silently exclude a source the user added an API key for.
 

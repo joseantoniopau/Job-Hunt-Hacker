@@ -246,7 +246,12 @@ def test_api_key(body: APIKeyTestRequest) -> dict:
     """
     allowed = {spec["env"]: spec for spec in API_KEYS}
     if body.env not in allowed:
-        raise HTTPException(400, f"unknown key: {body.env}")
+        # Return our standard {ok:false, data:{...}} envelope so the UI's
+        # api wrapper picks up the message and renders it on the row.
+        return {"ok": False, "data": {
+            "env": body.env, "ok": False, "status": "unknown_key",
+            "message": f"unknown key: {body.env}",
+        }}
     spec = allowed[body.env]
     attr = spec.get("settings_attr") or ""
     val = (body.value or "").strip() or (getattr(settings, attr, "") or "")

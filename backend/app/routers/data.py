@@ -311,6 +311,48 @@ def delete_all(
     except Exception as exc:  # noqa: BLE001
         log.warning("wipe: failed to clean scheduler jobs: %s", exc)
 
+    # Also clear the filesystem artifacts: tailored resume files + built
+    # application packets + uploaded evidence files. Otherwise the user
+    # "deletes their data" but stale packets / resumes from prior jobs
+    # remain on disk.
+    import shutil
+    fs_counts: dict[str, int] = {"resumes": 0, "packets": 0, "uploads": 0, "calendar_ics": 0}
+    try:
+        for f in settings.resumes_dir.iterdir():
+            if f.name == ".gitkeep": continue
+            try:
+                if f.is_dir(): shutil.rmtree(f)
+                else: f.unlink()
+                fs_counts["resumes"] += 1
+            except Exception:
+                pass
+        for d in settings.packets_dir.iterdir():
+            if d.name == ".gitkeep": continue
+            try:
+                if d.is_dir(): shutil.rmtree(d)
+                else: d.unlink()
+                fs_counts["packets"] += 1
+            except Exception:
+                pass
+        for f in settings.uploads_dir.iterdir():
+            if f.name == ".gitkeep": continue
+            try:
+                if f.is_dir(): shutil.rmtree(f)
+                else: f.unlink()
+                fs_counts["uploads"] += 1
+            except Exception:
+                pass
+        ics_dir = settings.data_dir / "calendar_ics"
+        if ics_dir.exists():
+            for f in ics_dir.iterdir():
+                try:
+                    f.unlink()
+                    fs_counts["calendar_ics"] += 1
+                except Exception:
+                    pass
+    except Exception as exc:  # noqa: BLE001
+        log.warning("wipe: filesystem cleanup partial failure: %s", exc)
+
     # audit AFTER wipe so the record survives (audit_log was just cleared)
-    audit("data_wipe", "data", None, counts=counts)
-    return {"ok": True, "data": {"counts": counts}}
+    audit("data_wipe", "data", None, counts=counts, fs_counts=fs_counts)
+    return {"ok": True, "data": {"counts": counts, "fs_counts": fs_counts}}

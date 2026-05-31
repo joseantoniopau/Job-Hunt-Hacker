@@ -3,7 +3,7 @@
 # Nothing is required. The app runs fully offline with sane fallbacks.
 
 set -e
-ROOT="/Users/japa/Desktop/Job-Hunt-Hacker"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENV="$ROOT/.env"
 
 if [ ! -f "$ENV" ]; then

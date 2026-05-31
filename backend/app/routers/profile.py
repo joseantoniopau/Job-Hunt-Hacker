@@ -53,10 +53,18 @@ def get_profile() -> dict:
 
 @router.put("/profile")
 def put_profile(body: UserProfileIn) -> OK:
-    conn = get_conn()
+    """Partial-update semantics: only SET fields the caller actually
+    supplied. Using `exclude_unset=True` (not exclude_none) so explicit
+    `null` from the UI clears a field, but unsupplied fields are
+    untouched. Previously every PUT clobbered every column with whatever
+    happened to be in the request body — saving the weekly availability
+    grid wiped name/email/target_titles/everything else.
+    """
+    payload = body.model_dump(exclude_unset=True)
+    if not payload:
+        return OK(detail="no fields supplied")
     cols = []
     vals = []
-    payload = body.model_dump(exclude_none=False)
     for k, v in payload.items():
         if k in _LIST_FIELDS:
             cols.append(f"{k} = ?")
@@ -70,9 +78,10 @@ def put_profile(body: UserProfileIn) -> OK:
     cols.append("updated_at = ?")
     vals.append(time.time())
     sql = f"UPDATE user_profile SET {', '.join(cols)} WHERE id = 1"
+    conn = get_conn()
     conn.execute(sql, vals)
-    audit("profile_update", "user_profile", 1)
-    return OK(detail="profile updated")
+    audit("profile_update", "user_profile", 1, fields=sorted(payload.keys()))
+    return OK(detail=f"profile updated: {len(payload)} field(s)")
 
 
 # ----- infer endpoint -----
