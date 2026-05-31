@@ -111,7 +111,13 @@ class ApplicationCreate(BaseModel):
 
 
 class ApplicationUpdate(BaseModel):
-    status: Optional[str] = None
+    # Enum-bounded so a bad value (e.g. typo from the kanban frontend)
+    # surfaces as 422 at the FastAPI boundary rather than a 500 from
+    # _validate_status deep inside pipeline.py.
+    status: Optional[Literal[
+        "saved", "prepared", "applied", "replied", "screened",
+        "interview", "offer", "rejected", "archived", "auto_packet_ready",
+    ]] = None
     notes: Optional[str] = None
     next_followup_at: Optional[float] = None
     application_url: Optional[str] = None

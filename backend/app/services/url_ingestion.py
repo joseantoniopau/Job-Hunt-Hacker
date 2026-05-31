@@ -99,12 +99,64 @@ def _extract_title(html: str) -> str:
     return re.sub(r"\s+", " ", m.group(1)).strip()[:300]
 
 
+def _ssrf_check(url: str) -> str | None:
+    """Return None if url is safe to fetch; an error string otherwise.
+
+    Blocks:
+      - non-http(s) schemes (file://, gopher://, dict://, ftp://, etc.)
+      - hostnames that resolve to loopback / link-local / private / multicast addresses
+      - bare IPs in the same ranges
+      - cloud metadata endpoints (169.254.169.254, etc.)
+    """
+    try:
+        parsed = urlparse(url)
+    except Exception:
+        return "invalid URL"
+    scheme = (parsed.scheme or "").lower()
+    if scheme not in ("http", "https"):
+        return f"scheme not allowed: {scheme!r} (must be http or https)"
+    host = (parsed.hostname or "").strip()
+    if not host:
+        return "missing host"
+
+    # Resolve host → addresses; reject if ANY address is in a blocked range.
+    import ipaddress
+    import socket
+    try:
+        infos = socket.getaddrinfo(host, None)
+    except Exception as e:
+        return f"hostname lookup failed: {e}"
+    for info in infos:
+        addr_str = info[4][0]
+        try:
+            addr = ipaddress.ip_address(addr_str)
+        except ValueError:
+            continue
+        if (addr.is_loopback or addr.is_link_local or addr.is_private
+                or addr.is_multicast or addr.is_reserved or addr.is_unspecified):
+            return f"refusing to fetch internal/private address: {addr_str}"
+        # AWS / GCP / Azure metadata IP (link_local already catches 169.254.0.0/16
+        # but be explicit so the error message is clear)
+        if str(addr).startswith("169.254."):
+            return "refusing to fetch cloud metadata endpoint"
+    return None
+
+
 def fetch_url(url: str) -> dict[str, Any]:
     """Return ``{url, title, text, fetched_at, content_type}`` or ``{error}``."""
     if not url:
         return {"error": "empty url"}
     if not _HTTPX_OK:
         return {"error": "httpx not installed"}
+
+    # SSRF protection: reject non-http(s) schemes and any host that
+    # resolves to a loopback / link-local / RFC1918 / multicast address.
+    # Without this guard a malicious payload could harvest AWS metadata
+    # (169.254.169.254), read internal services (localhost:5432), or
+    # leak files via file:// / gopher:// / dict:// schemes.
+    ssrf_err = _ssrf_check(url)
+    if ssrf_err:
+        return {"error": ssrf_err, "url": url}
 
     if not _allowed_by_robots(url):
         log.info("robots disallowed: %s", url)
@@ -114,9 +166,24 @@ def fetch_url(url: str) -> dict[str, Any]:
         with httpx.Client(
             headers={"User-Agent": _UA, "Accept": "*/*"},
             timeout=_TIMEOUT,
-            follow_redirects=True,
+            follow_redirects=False,    # explicit: handle redirects ourselves to re-validate hosts
         ) as client:
             r = client.get(url)
+            # Manual redirect with SSRF re-check on each hop (max 5)
+            for _hop in range(5):
+                if r.status_code not in (301, 302, 303, 307, 308):
+                    break
+                next_url = r.headers.get("Location")
+                if not next_url:
+                    break
+                if next_url.startswith("/"):
+                    parsed_orig = urlparse(url)
+                    next_url = f"{parsed_orig.scheme}://{parsed_orig.netloc}{next_url}"
+                ssrf_err2 = _ssrf_check(next_url)
+                if ssrf_err2:
+                    return {"error": f"redirect blocked: {ssrf_err2}", "url": next_url}
+                r = client.get(next_url)
+                url = next_url
     except Exception as e:  # noqa: BLE001
         log.warning("fetch_url request failed for %s: %s", url, e)
         return {"error": f"request failed: {e}", "url": url}
