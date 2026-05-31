@@ -32,6 +32,28 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
+# Isolate the smoke test from the user's real DB. Set JHH_DB_PATH BEFORE
+# importing any backend module so config.settings materializes against the
+# temp file. Otherwise smoke writes "Smoke Tester" into the user's actual
+# user_profile row and seeds real test rows into their vault.
+# Override via JHH_SMOKE_DB env var if you want to inspect the smoke DB.
+import tempfile as _tf
+if not os.environ.get("JHH_DB_PATH"):
+    _smoke_dir = Path(_tf.gettempdir()) / "jhh_smoke"
+    _smoke_dir.mkdir(parents=True, exist_ok=True)
+    _smoke_db = os.environ.get("JHH_SMOKE_DB") or str(_smoke_dir / "smoke.db")
+    os.environ["JHH_DB_PATH"] = _smoke_db
+    # Also redirect ephemeral dirs so smoke can't leak tailored resumes /
+    # packets / uploads into the user's filesystem.
+    for env, sub in (("JHH_UPLOADS_DIR", "uploads"),
+                     ("JHH_RESUMES_DIR", "resumes"),
+                     ("JHH_PACKETS_DIR", "packets")):
+        if not os.environ.get(env):
+            d = _smoke_dir / sub
+            d.mkdir(parents=True, exist_ok=True)
+            os.environ[env] = str(d)
+    print(f"[smoke] isolated to {_smoke_db}")
+
 # Force minimal noise from libs
 os.environ.setdefault("PYTHONWARNINGS", "ignore")
 
