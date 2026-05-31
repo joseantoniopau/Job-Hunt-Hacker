@@ -36,6 +36,8 @@
         <a href="#pipeline"  data-tab="pipeline">PIPELINE</a>
         <a href="#inbox"     data-tab="inbox">INBOX</a>
         <a href="#calendar"  data-tab="calendar">CALENDAR</a>
+        <a href="#intel"     data-tab="intel">INTEL</a>
+        <a href="#network"   data-tab="network">NETWORK</a>
         <a href="#settings"  data-tab="settings">SETTINGS</a>
       </nav>
       <div class="topbar-right">
@@ -758,6 +760,122 @@ Select a resume to preview.
     <!-- =========================================================
          08 · SETTINGS
          ========================================================= -->
+    <!-- =========================================================
+         09 · INTEL (market intelligence + velocity + gaps + effectiveness)
+         ========================================================= -->
+    <section class="page" data-page="intel" aria-labelledby="intel-title">
+      <h2 class="page-title" id="intel-title"><span class="page-num">09 /</span>INTEL</h2>
+      <p class="page-sub">Salary market data, application velocity, skill-gap trends, resume effectiveness — the analytics a great headhunter would run for you.</p>
+
+      <div class="two-col">
+        <section class="card">
+          <header class="card-head"><h3>Velocity funnel</h3>
+            <button class="btn btn-ghost small" id="intel-refresh-velocity">REFRESH</button></header>
+          <div id="velocity-funnel" class="kv-grid">Loading…</div>
+        </section>
+
+        <section class="card">
+          <header class="card-head"><h3>Bottleneck analysis</h3></header>
+          <p id="velocity-bottleneck" class="muted">—</p>
+        </section>
+      </div>
+
+      <div class="two-col">
+        <section class="card">
+          <header class="card-head"><h3>Top skill gaps (30 days)</h3></header>
+          <ul id="intel-gaps" class="bullets"><li class="muted">Loading…</li></ul>
+        </section>
+
+        <section class="card">
+          <header class="card-head"><h3>Resume effectiveness leaderboard</h3></header>
+          <div class="table-wrap">
+            <table class="data-table" id="intel-effectiveness">
+              <thead><tr><th>RESUME</th><th>SENT</th><th>REPLY%</th><th>INTERVIEW%</th><th>OFFER%</th></tr></thead>
+              <tbody><tr><td colspan="5" class="empty">No effectiveness data yet — mark applications as replied/interview/offer in Pipeline.</td></tr></tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+
+      <section class="card">
+        <header class="card-head"><h3>Salary market read</h3>
+          <span class="muted small">computed from local job postings (last 90 days)</span></header>
+        <form id="intel-salary-form" class="three-col">
+          <label>Role <input type="text" name="role" placeholder="Senior Backend Engineer" /></label>
+          <label>Location <input type="text" name="location" placeholder="Remote" /></label>
+          <label>Currency
+            <select name="currency"><option>USD</option><option>EUR</option><option>GBP</option><option>CAD</option><option>AUD</option></select>
+          </label>
+        </form>
+        <div class="form-actions">
+          <button class="btn btn-primary" id="intel-salary-go">COMPUTE</button>
+          <span id="intel-salary-status" class="status-line"></span>
+        </div>
+        <div id="intel-salary-out" class="kv-grid"></div>
+      </section>
+
+      <section class="card">
+        <header class="card-head"><h3>Top companies in your funnel</h3></header>
+        <div class="table-wrap">
+          <table class="data-table" id="intel-companies">
+            <thead><tr><th>COMPANY</th><th>JOBS&nbsp;SEEN</th><th>APPLIED</th><th>OUTCOMES</th></tr></thead>
+            <tbody><tr><td colspan="4" class="empty">No companies tracked yet.</td></tr></tbody>
+          </table>
+        </div>
+      </section>
+    </section>
+
+    <!-- =========================================================
+         10 · NETWORK (connections + referrals)
+         ========================================================= -->
+    <section class="page" data-page="network" aria-labelledby="network-title">
+      <h2 class="page-title" id="network-title"><span class="page-num">10 /</span>NETWORK</h2>
+      <p class="page-sub">Track who you know where. The skill suggests which connections could refer you at companies you're applying to.</p>
+
+      <div class="two-col">
+        <section class="card">
+          <header class="card-head"><h3>Add a connection</h3></header>
+          <form id="connection-form" class="stack">
+            <label>Name <input type="text" name="name" required /></label>
+            <div class="two-col">
+              <label>Relationship <input type="text" name="relationship" placeholder="former colleague" /></label>
+              <label>Company <input type="text" name="company" placeholder="Stripe" /></label>
+            </div>
+            <div class="two-col">
+              <label>Role <input type="text" name="role" placeholder="Senior Engineer" /></label>
+              <label>Contact <input type="text" name="contact" placeholder="linkedin.com/in/… or email" /></label>
+            </div>
+            <label>Notes <textarea name="notes" rows="3"></textarea></label>
+            <div class="form-actions">
+              <button class="btn btn-primary" type="submit">SAVE</button>
+              <span id="connection-status" class="status-line"></span>
+            </div>
+          </form>
+        </section>
+
+        <section class="card">
+          <header class="card-head"><h3>Refer-at lookup</h3>
+            <span class="muted small">"who could refer me at X?"</span></header>
+          <form id="refer-form" class="stack">
+            <label>Company <input type="text" name="company" placeholder="Stripe" required /></label>
+            <button class="btn btn-secondary" type="submit">FIND CONTACTS</button>
+          </form>
+          <ul id="refer-results" class="bullets"></ul>
+        </section>
+      </div>
+
+      <section class="card">
+        <header class="card-head"><h3>All connections</h3>
+          <button class="btn btn-ghost small" id="connections-refresh">REFRESH</button></header>
+        <div class="table-wrap">
+          <table class="data-table" id="connections-table">
+            <thead><tr><th>NAME</th><th>COMPANY</th><th>ROLE</th><th>RELATIONSHIP</th><th>CONTACT</th><th></th></tr></thead>
+            <tbody><tr><td colspan="6" class="empty">No connections yet.</td></tr></tbody>
+          </table>
+        </div>
+      </section>
+    </section>
+
     <section class="page" data-page="settings" aria-labelledby="settings-title">
       <h2 class="page-title" id="settings-title"><span class="page-num">08 /</span>SETTINGS</h2>
       <p class="page-sub">Providers, sources, scoring, compliance. Persisted on the server.</p>

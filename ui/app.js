@@ -159,7 +159,7 @@
   }
 
   // ----- page routing -----
-  const PAGES = ['landing','setup','vault','dashboard','resume','pipeline','inbox','calendar','settings'];
+  const PAGES = ['landing','setup','vault','dashboard','resume','pipeline','inbox','calendar','intel','network','settings'];
   function switchPage(name) {
     if (!PAGES.includes(name)) name = 'landing';
     state.page = name;
@@ -176,6 +176,8 @@
     if (name === 'pipeline')  loadPipeline();
     if (name === 'inbox')     loadInbox();
     if (name === 'calendar')  { renderAvailGrid(); loadCalendarEvents(); }
+    if (name === 'intel')     loadIntel();
+    if (name === 'network')   loadNetwork();
     if (name === 'settings')  loadSettings();
   }
   function bindRouting() {
@@ -2225,6 +2227,7 @@
     bindPipelineBoard();
     bindInbox();
     bindCalendar();
+    bindIntelNetwork();
     bindSettings();
     refreshWeightTotal();
     bootStatus();
@@ -2235,5 +2238,203 @@
     // populate availability grid even when calendar tab not yet visited
     renderAvailGrid();
   }
+  // ============================================================
+  // INTEL + NETWORK pages (v0.3 — headhunter-grade surfaces)
+  // ============================================================
+  async function loadIntel() {
+    // Velocity funnel
+    const fr = await api.get('/api/velocity/funnel', { silent: true });
+    const f = (fr.ok && (fr.data || {})) || {};
+    const fhost = $('#velocity-funnel');
+    if (fhost) {
+      fhost.innerHTML = '';
+      const fields = [
+        ['Prepared', f.prepared ?? 0], ['Applied', f.applied ?? 0],
+        ['Replied', f.replied ?? 0], ['Screened', f.screened ?? 0],
+        ['Interview', f.interviewed ?? f.interview ?? 0],
+        ['Offered', f.offered ?? 0], ['Rejected', f.rejected ?? 0],
+        ['Ghosted', f.ghosted ?? 0],
+        ['Reply rate', ((f.reply_rate ?? 0) * 100).toFixed(0) + '%'],
+        ['Interview rate', ((f.interview_rate ?? 0) * 100).toFixed(0) + '%'],
+        ['Offer rate', ((f.offer_rate ?? 0) * 100).toFixed(0) + '%'],
+      ];
+      for (const [k, v] of fields) {
+        fhost.appendChild(el('div', { class: 'kv-row' }, [
+          el('span', { class: 'kv-key', text: k }),
+          el('span', { class: 'kv-val', text: String(v) }),
+        ]));
+      }
+    }
+    // Bottleneck
+    const br = await api.get('/api/velocity/bottleneck', { silent: true });
+    if ($('#velocity-bottleneck')) {
+      const d = (br.ok && br.data) || {};
+      $('#velocity-bottleneck').textContent =
+        d.diagnosis || d.summary || d.message || 'Not enough data yet — apply to ≥5 jobs first.';
+    }
+    // Gaps
+    const gr = await api.get('/api/gaps/top?days=30&limit=10', { silent: true });
+    const glist = $('#intel-gaps');
+    if (glist) {
+      glist.innerHTML = '';
+      const arr = (gr.ok && (gr.data?.gaps || gr.data || [])) || [];
+      if (!arr.length) {
+        glist.appendChild(el('li', { class: 'muted', text: 'No gaps tracked yet.' }));
+      } else {
+        for (const g of arr) {
+          glist.appendChild(el('li', {
+            text: `${g.keyword} — ${g.mentions} job${g.mentions === 1 ? '' : 's'}`,
+          }));
+        }
+      }
+    }
+    // Effectiveness
+    const er = await api.get('/api/effectiveness/leaderboard?min_sent=1', { silent: true });
+    const tb = $('#intel-effectiveness tbody');
+    if (tb) {
+      tb.innerHTML = '';
+      const rows = (er.ok && (er.data || [])) || [];
+      if (!rows.length) {
+        tb.appendChild(el('tr', {}, el('td', { colspan: 5, class: 'empty',
+          text: 'No effectiveness data yet — mark applications as replied/interview/offer in Pipeline.' })));
+      } else {
+        for (const r of rows) {
+          tb.appendChild(el('tr', {}, [
+            el('td', { text: `#${r.resume_id ?? '—'}` }),
+            el('td', { text: String(r.sent ?? 0) }),
+            el('td', { text: ((r.reply_rate ?? 0) * 100).toFixed(0) + '%' }),
+            el('td', { text: ((r.interview_rate ?? 0) * 100).toFixed(0) + '%' }),
+            el('td', { text: ((r.offer_rate ?? 0) * 100).toFixed(0) + '%' }),
+          ]));
+        }
+      }
+    }
+    // Companies
+    const cr = await api.get('/api/companies', { silent: true });
+    const ctb = $('#intel-companies tbody');
+    if (ctb) {
+      ctb.innerHTML = '';
+      const arr = (cr.ok && (cr.data || [])) || [];
+      if (!arr.length) {
+        ctb.appendChild(el('tr', {}, el('td', { colspan: 4, class: 'empty', text: 'No companies tracked yet.' })));
+      } else {
+        for (const c of arr.slice(0, 25)) {
+          ctb.appendChild(el('tr', {}, [
+            el('td', { text: safeText(c.company || c.name || '—') }),
+            el('td', { text: String(c.jobs_seen ?? c.count ?? 0) }),
+            el('td', { text: String(c.applications ?? 0) }),
+            el('td', { text: safeText((c.outcomes || []).join(', ') || '—') }),
+          ]));
+        }
+      }
+    }
+  }
+
+  async function loadNetwork() {
+    const r = await api.get('/api/connections', { silent: true });
+    const tb = $('#connections-table tbody');
+    if (!tb) return;
+    tb.innerHTML = '';
+    const rows = (r.ok && (r.data || [])) || [];
+    if (!rows.length) {
+      tb.appendChild(el('tr', {}, el('td', { colspan: 6, class: 'empty', text: 'No connections yet — add one in the form above.' })));
+      return;
+    }
+    for (const c of rows) {
+      const delBtn = el('button', { class: 'btn btn-ghost small', type: 'button',
+        onclick: async () => {
+          if (!confirm(`Delete ${c.name}?`)) return;
+          await api.del('/api/connections/' + c.id);
+          loadNetwork();
+        }
+      }, 'DEL');
+      tb.appendChild(el('tr', {}, [
+        el('td', { text: safeText(c.name || '—') }),
+        el('td', { text: safeText(c.company || '—') }),
+        el('td', { text: safeText(c.role || '—') }),
+        el('td', { text: safeText(c.relationship || '—') }),
+        el('td', { text: safeText(c.contact || '—') }),
+        el('td', {}, delBtn),
+      ]));
+    }
+  }
+
+  function bindIntelNetwork() {
+    // Intel: salary form + refresh
+    const sf = $('#intel-salary-form');
+    if (sf) {
+      $('#intel-salary-go').addEventListener('click', async (e) => {
+        e.preventDefault();
+        const role = sf.elements.namedItem('role').value.trim();
+        if (!role) { toast('Enter a role first.', 'warn'); return; }
+        const loc = sf.elements.namedItem('location').value.trim();
+        const cur = sf.elements.namedItem('currency').value;
+        $('#intel-salary-status').textContent = 'Loading…';
+        const r = await api.get(`/api/salary/market?role=${encodeURIComponent(role)}` +
+          (loc ? `&location=${encodeURIComponent(loc)}` : '') +
+          `&currency=${cur}`, { silent: true });
+        const out = $('#intel-salary-out');
+        out.innerHTML = '';
+        if (!r.ok) {
+          $('#intel-salary-status').textContent = 'No data.';
+          return;
+        }
+        const d = r.data || {};
+        $('#intel-salary-status').textContent = `n=${d.count ?? 0}`;
+        const fmt = (n) => n ? '$' + Number(n).toLocaleString() : '—';
+        for (const [k, v] of [
+          ['Count', d.count ?? 0], ['Currency', d.currency || cur],
+          ['p25', fmt(d.p25)], ['Median', fmt(d.median)], ['p75', fmt(d.p75)], ['p90', fmt(d.p90)],
+        ]) {
+          out.appendChild(el('div', { class: 'kv-row' }, [
+            el('span', { class: 'kv-key', text: k }),
+            el('span', { class: 'kv-val', text: String(v) }),
+          ]));
+        }
+      });
+    }
+    const refV = $('#intel-refresh-velocity');
+    if (refV) refV.addEventListener('click', loadIntel);
+
+    // Network: add connection form
+    const cf = $('#connection-form');
+    if (cf) {
+      cf.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const data = serializeForm(cf);
+        const r = await api.post('/api/connections', data);
+        if (r.ok) {
+          toast('Connection added.', 'success');
+          cf.reset();
+          loadNetwork();
+        }
+      });
+    }
+    // Network: refer-at lookup
+    const rf = $('#refer-form');
+    if (rf) {
+      rf.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const co = rf.elements.namedItem('company').value.trim();
+        if (!co) return;
+        const r = await api.get('/api/connections/refer/' + encodeURIComponent(co), { silent: true });
+        const list = $('#refer-results');
+        list.innerHTML = '';
+        const arr = (r.ok && (r.data || [])) || [];
+        if (!arr.length) {
+          list.appendChild(el('li', { class: 'muted', text: `No connections at ${co} (yet).` }));
+        } else {
+          for (const c of arr) {
+            list.appendChild(el('li', {
+              text: `${c.name} — ${c.role || ''} at ${c.company || co}${c.contact ? ' · ' + c.contact : ''}`
+            }));
+          }
+        }
+      });
+    }
+    const refCo = $('#connections-refresh');
+    if (refCo) refCo.addEventListener('click', loadNetwork);
+  }
+
   document.addEventListener('DOMContentLoaded', init);
 })();
