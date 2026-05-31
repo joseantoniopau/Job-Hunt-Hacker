@@ -24,11 +24,23 @@ def _load_job(job_id: int) -> dict:
 
 
 def _deterministic_prep(job: dict, claims: list[dict]) -> dict:
+    # Talking points must be SENTENCE-shaped evidence, not bare skill
+    # tokens. Same honesty rule we use in cover_letter + recruiter_messages
+    # — a recruiter who hears "tell me about a recent accomplishment"
+    # and gets back "postgresql" learns nothing.
+    SENTENCE_TYPES = {"role", "accomplishment", "responsibility",
+                      "leadership", "project", "metric", "experience"}
     points = []
-    for c in claims[:5]:
-        text = c.get("claim_text") or ""
-        if text:
-            points.append({"text": text, "evidence_ids": [c["id"]]})
+    for c in claims:
+        if len(points) >= 5:
+            break
+        text = (c.get("claim_text") or "").strip()
+        if not text or len(text.split()) < 4:
+            continue
+        ctype = (c.get("claim_type") or "").lower()
+        if ctype and ctype not in SENTENCE_TYPES:
+            continue
+        points.append({"text": text, "evidence_ids": [c["id"]]})
     role = job.get("title") or "the role"
     likely = [
         f"Walk me through your most relevant project for {role}.",
