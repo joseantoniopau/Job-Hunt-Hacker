@@ -13,7 +13,11 @@ from typing import Any, Iterator
 
 from .config import settings
 
-_lock = threading.Lock()
+# Reentrant lock + per-thread "are we already in a tx?" flag so that a
+# tx() inside another tx() degrades to a no-op (yields the same connection
+# without nested BEGIN/COMMIT — SQLite forbids that).
+_lock = threading.RLock()
+_in_tx = threading.local()
 
 
 def _connect() -> sqlite3.Connection:
@@ -40,15 +44,36 @@ def get_conn() -> sqlite3.Connection:
 
 @contextmanager
 def tx() -> Iterator[sqlite3.Connection]:
+    """Acquire the write lock + BEGIN/COMMIT around the block.
+
+    Reentrancy-safe: if we're already inside a tx() on this thread,
+    just yield the live connection without nested BEGIN (SQLite would
+    error: "cannot start a transaction within a transaction").
+    """
     conn = get_conn()
+    # If we're already in a transaction on this thread, just yield the conn.
+    if getattr(_in_tx, "depth", 0) > 0:
+        _in_tx.depth += 1
+        try:
+            yield conn
+        finally:
+            _in_tx.depth -= 1
+        return
+
     with _lock:
+        _in_tx.depth = 1
         try:
             conn.execute("BEGIN")
             yield conn
             conn.execute("COMMIT")
         except Exception:
-            conn.execute("ROLLBACK")
+            try:
+                conn.execute("ROLLBACK")
+            except Exception:
+                pass
             raise
+        finally:
+            _in_tx.depth = 0
 
 
 SCHEMA = [
@@ -388,8 +413,32 @@ def rows_to_dicts(rows: list[sqlite3.Row]) -> list[dict]:
 
 
 def audit(action: str, target_type: str = "", target_id: int | None = None, **detail: Any) -> None:
-    with tx() as conn:
-        conn.execute(
-            "INSERT INTO audit_log (ts, actor, action, target_type, target_id, detail_json) VALUES (?, ?, ?, ?, ?, ?)",
-            (time.time(), "system", action, target_type, target_id, json.dumps(detail, default=str)),
-        )
+    """Single-statement insert. Safe to call from inside a tx() too —
+    `tx()` is reentrancy-aware, but even without that the connection is
+    in autocommit mode so a bare INSERT outside a transaction commits
+    immediately.
+    """
+    conn = get_conn()
+    # Acquire the lock briefly so the INSERT serializes with concurrent
+    # transactions; using the existing tx() context manager so its
+    # reentrancy logic kicks in if we're already inside another tx.
+    try:
+        with tx() as c:
+            c.execute(
+                "INSERT INTO audit_log (ts, actor, action, target_type, target_id, detail_json) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (time.time(), "system", action, target_type, target_id,
+                 json.dumps(detail, default=str)),
+            )
+    except Exception:
+        # Last-ditch fallback: write outside any transaction so an audit failure
+        # never bubbles up to break a caller's actual operation.
+        try:
+            conn.execute(
+                "INSERT INTO audit_log (ts, actor, action, target_type, target_id, detail_json) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (time.time(), "system", action, target_type, target_id,
+                 json.dumps(detail, default=str)),
+            )
+        except Exception:
+            pass

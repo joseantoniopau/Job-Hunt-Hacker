@@ -109,22 +109,42 @@ def _extract_contacts(header_text: str, full_text: str) -> dict[str, Any]:
         for m in GITHUB_RE.finditer(region):
             links.add(m.group(0))
 
-    # Name: first non-empty line of header that is not a URL/email/phone
+    # Name extraction is the highest-fabrication-risk path. Require a
+    # genuine signal that this header is actually a resume header — at
+    # minimum ONE of {email, phone, URL} must be present. If none, refuse
+    # to guess a name from arbitrary text like "this is not a resume".
     name = ""
-    for line in header_text.splitlines():
-        s = line.strip()
-        if not s:
-            continue
-        if EMAIL_RE.search(s) or URL_RE.search(s):
-            continue
-        digits = re.sub(r"\D", "", s)
-        if len(digits) >= 7:  # phone-ish
-            continue
-        # Reasonable name: 1-5 words, mostly letters
-        words = s.split()
-        if 1 <= len(words) <= 5 and sum(1 for w in words if re.match(r"[A-Za-z\-']+$", w)) >= len(words) - 1:
-            name = s
-            break
+    has_signal = bool(email or phone or links)
+    if has_signal:
+        for line in header_text.splitlines():
+            s = line.strip()
+            if not s:
+                continue
+            if EMAIL_RE.search(s) or URL_RE.search(s):
+                continue
+            digits = re.sub(r"\D", "", s)
+            if len(digits) >= 7:  # phone-ish
+                continue
+            words = s.split()
+            # Stricter name heuristic:
+            #  - 2-5 words (single-word names too risky to extract from junk)
+            #  - every word starts with uppercase (proper noun pattern)
+            #  - every word is a-z A-Z hyphen apostrophe only
+            #  - line is not a section header (uppercase title like "EXPERIENCE")
+            if not (2 <= len(words) <= 5):
+                continue
+            if s.isupper() and not any(w[0].islower() for w in words):
+                # Could be a header word like "SUMMARY" or all-caps name "MARIA CHEN"
+                # Accept only if multi-word AND looks like a person (no "EXPERIENCE" etc.)
+                JUNK_HEADERS = {"summary","experience","education","skills","projects",
+                                "certifications","publications","awards","contact",
+                                "objective","profile"}
+                if any(w.lower() in JUNK_HEADERS for w in words):
+                    continue
+            ok = all(re.match(r"[A-Z][A-Za-z\-']*$", w) for w in words)
+            if ok:
+                name = s
+                break
 
     return {"name": name, "email": email, "phone": phone,
             "links": sorted(links)}

@@ -37,20 +37,41 @@ def post_search(body: JobSearchRequest) -> dict:
     q = _to_query(body)
     # which adapters to call
     requested_sites: list[str] = []
+    unknown_sites: list[str] = []
     # jobspy fans out across multiple scraper sites via q.extra["sites"]; if any
     # are jobspy-supported sites, include the jobspy adapter.
     jobspy_sites = {"indeed", "glassdoor", "google", "linkedin",
                     "zip_recruiter", "bayt", "naukri", "bdjobs"}
-    if any(s in jobspy_sites for s in body.sites):
-        requested_sites.append("jobspy")
     for s in body.sites:
-        if s in REGISTRY and s not in requested_sites:
-            requested_sites.append(s)
+        if s in jobspy_sites:
+            if "jobspy" not in requested_sites:
+                requested_sites.append("jobspy")
+        elif s in REGISTRY:
+            if s not in requested_sites:
+                requested_sites.append(s)
+        else:
+            unknown_sites.append(s)
+
+    # Fall back to every healthy adapter ONLY when the caller supplied no
+    # `sites` at all. If they asked specifically for unknown sites we surface
+    # an error rather than silently running every adapter.
     if not requested_sites:
-        # fall back to every healthy adapter
+        if body.sites:
+            return {
+                "ok": False,
+                "error": f"no valid sites in {body.sites!r}; available: {sorted(REGISTRY.keys())}",
+                "data": {
+                    "discovered": 0, "inserted": 0, "duplicates": 0,
+                    "per_source": {}, "errors": {s: "unknown_site" for s in unknown_sites},
+                    "ids": [], "scored": 0, "unknown_sites": unknown_sites,
+                },
+            }
         requested_sites = list(REGISTRY.keys())
 
     search_res = search_all(q, requested_sites)
+    # Surface unknown_sites in the errors map so the UI shows what was skipped.
+    for s in unknown_sites:
+        search_res.setdefault("errors", {})[s] = "unknown_site"
     persist_res = persist(search_res["records"])
 
     # Best-effort scoring kick-off

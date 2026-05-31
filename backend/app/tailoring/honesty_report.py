@@ -7,13 +7,16 @@ from typing import Any
 from .provenance import ProvenanceMap
 
 
-def _risk_from_coverage(coverage: dict, n_dropped: int, n_unsupported_kw: int) -> str:
+def _risk_from_coverage(coverage: dict, n_dropped: int, n_unsupported_kw: int,
+                        facts_used: int = 0) -> str:
     n_seg = coverage.get("n_segments", 0) or 0
     n_with = coverage.get("n_with_evidence", 0) or 0
-    if n_seg == 0:
-        ratio = 1.0
-    else:
-        ratio = n_with / n_seg
+    # If nothing was generated OR no evidence backed any of it, this is
+    # NOT "low risk" — it's "not-applicable" so we don't tell the user
+    # an empty document is "safe to submit".
+    if n_seg == 0 or facts_used == 0:
+        return "n/a"
+    ratio = n_with / n_seg
     if n_dropped >= 3 or n_unsupported_kw >= 5 or ratio < 0.6:
         return "high"
     if n_dropped >= 1 or n_unsupported_kw >= 2 or ratio < 0.85:
@@ -21,7 +24,19 @@ def _risk_from_coverage(coverage: dict, n_dropped: int, n_unsupported_kw: int) -
     return "low"
 
 
-def _recommendation(risk: str, n_dropped: int, gaps: list[str]) -> str:
+def _recommendation(risk: str, n_dropped: int, gaps: list[str],
+                    facts_used: int = 0) -> str:
+    if risk == "n/a":
+        if facts_used == 0:
+            return (
+                "No evidence was used to ground this output — likely because your "
+                "Career Evidence Vault is empty or no claims matched this job. "
+                "Add evidence (resume, LinkedIn, GitHub, portfolio) and re-tailor."
+            )
+        return (
+            "No content was generated. Add evidence to the vault, or pick a "
+            "different role with more keyword overlap to your claims."
+        )
     if risk == "high":
         return (
             "High risk of overstatement. Review the dropped segments and missing "
@@ -73,10 +88,11 @@ def build_report(
     wording = list(wording_changed or [])
     missing = list(missing_evidence or [])
 
-    risk = _risk_from_coverage(coverage, len(dropped), len(excluded))
+    facts_used = len(all_ids)
+    risk = _risk_from_coverage(coverage, len(dropped), len(excluded), facts_used)
 
     return {
-        "facts_used": len(all_ids),
+        "facts_used": facts_used,
         "facts_emphasized": facts_emphasized,
         "wording_changed": wording,
         "keywords_added": added,
@@ -85,7 +101,7 @@ def build_report(
         "potential_overstatement_risk": risk,
         "missing_evidence": missing,
         "gaps_flagged": gaps,
-        "recommendation": _recommendation(risk, len(dropped), gaps),
+        "recommendation": _recommendation(risk, len(dropped), gaps, facts_used),
         "dropped_segments": dropped,
         "provenance_coverage": coverage,
     }

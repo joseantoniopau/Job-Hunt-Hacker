@@ -59,6 +59,10 @@ TABLES: list[tuple[str, str]] = [
     ("calendar_event", "id"),
     ("saved_search", "id"),
     ("source_state", "source"),
+    # `embedding` MUST be exported — otherwise vector retrieval is lost on
+    # round-trip (the WIPE step nukes it, but if it's not in the bundle
+    # we have nothing to restore).
+    ("embedding", "id"),
 ]
 
 # Tables wiped on DELETE (everything except user_profile, which is reset).
@@ -212,6 +216,35 @@ async def import_all(file: UploadFile = File(...)) -> dict:
                     errors.append(f"{table}#{rec.get(pk)}: {exc}")
             imported_counts[table] = inserted
             skipped_counts[table] = skipped
+
+        # Restore audit_log_recent rows from the bundle so the user keeps
+        # their history across export/wipe/import cycles.
+        audit_rows = bundle.get("audit_log_recent") or []
+        if isinstance(audit_rows, list) and audit_rows:
+            try:
+                cols_info = conn.execute("PRAGMA table_info(audit_log)").fetchall()
+                valid_cols = {c[1] for c in cols_info}
+                inserted_audit = 0
+                for rec in audit_rows:
+                    if not isinstance(rec, dict):
+                        continue
+                    clean = {k: v for k, v in rec.items() if k in valid_cols}
+                    if not clean:
+                        continue
+                    col_list = ", ".join(clean.keys())
+                    placeholders = ", ".join("?" for _ in clean)
+                    try:
+                        conn.execute(
+                            f"INSERT OR REPLACE INTO audit_log ({col_list}) "
+                            f"VALUES ({placeholders})",
+                            list(clean.values()),
+                        )
+                        inserted_audit += 1
+                    except Exception as exc:  # noqa: BLE001
+                        errors.append(f"audit_log#{rec.get('id')}: {exc}")
+                imported_counts["audit_log"] = inserted_audit
+            except Exception as exc:  # noqa: BLE001
+                errors.append(f"audit_log restore: {exc}")
 
     audit("data_import", "data", None,
           imported=imported_counts, skipped=skipped_counts,

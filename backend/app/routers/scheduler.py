@@ -15,10 +15,16 @@ log = logging.getLogger("jhh.routers.scheduler")
 router = APIRouter(prefix="/api/scheduler", tags=["scheduler"])
 
 
+from pydantic import Field
+
+
 class SavedSearchCreate(BaseModel):
-    label: str
+    # `min_length=1` rejects an empty label.
+    label: str = Field(..., min_length=1, max_length=200)
     query: JobSearchRequest
-    frequency_hours: int = 24
+    # frequency_hours must be positive, capped at 1 year of hours so a
+    # rogue value can't flood the scheduler.
+    frequency_hours: int = Field(default=24, ge=1, le=8760)
     enabled: bool = True
 
 

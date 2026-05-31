@@ -66,13 +66,44 @@ def add_source(source_type: str, *,
 
 
 def add_claims(source_id: int, claims: list[dict]) -> list[int]:
-    """Insert claims and add per-claim embeddings. Returns inserted ids."""
+    """Insert claims and add per-claim embeddings. Returns inserted ids.
+
+    Dedupes by (source_id, claim_type, normalized_claim) so re-ingesting
+    the same source doesn't pile up duplicate claims. add_source already
+    dedupes by content_hash, but autopilot can re-run extraction on a
+    cached source and would otherwise multiply the vault by N every run.
+    """
     if not claims:
         return []
     now = _now()
     ids: list[int] = []
+    conn = get_conn()
+
+    # Pre-load existing (claim_type, normalized_claim) pairs for this source
+    # so we can skip duplicates without doing a per-row lookup.
+    existing: set[tuple[str, str]] = set()
+    try:
+        for r in conn.execute(
+            "SELECT claim_type, normalized_claim FROM career_claim WHERE source_id = ?",
+            (int(source_id),),
+        ).fetchall():
+            existing.add(((r[0] or "").lower(), (r[1] or "").lower()))
+    except Exception:
+        pass
+
+    skipped = 0
+    # Remember (claim_id, original_claim_dict) only for rows we actually
+    # inserted, so the embedding loop below operates on the right pairs.
+    inserted_pairs: list[tuple[int, dict]] = []
     with tx() as c:
         for claim in claims:
+            ctype = (claim.get("claim_type") or "responsibility").lower()
+            norm = (claim.get("normalized_claim")
+                    or normalize(claim.get("claim_text") or "")).lower()
+            key = (ctype, norm)
+            if not norm or key in existing:
+                skipped += 1
+                continue
             cur = c.execute(
                 "INSERT INTO career_claim "
                 "(source_id, claim_type, claim_text, normalized_claim, "
@@ -99,15 +130,19 @@ def add_claims(source_id: int, claims: list[dict]) -> list[int]:
                     now,
                 ),
             )
-            ids.append(int(cur.lastrowid))
+            cid = int(cur.lastrowid)
+            ids.append(cid)
+            inserted_pairs.append((cid, claim))
+            existing.add(key)
 
-    for claim_id, claim in zip(ids, claims):
+    for claim_id, claim in inserted_pairs:
         try:
             vector_store.add("claim", claim_id, claim.get("claim_text") or "")
         except Exception as e:  # noqa: BLE001
             log.warning("claim embedding failed for %d: %s", claim_id, e)
 
-    audit("claims_added", "evidence_source", source_id, count=len(ids))
+    audit("claims_added", "evidence_source", source_id,
+          inserted=len(ids), skipped_duplicates=skipped)
     return ids
 
 
