@@ -20,7 +20,27 @@ _lock = threading.RLock()
 _in_tx = threading.local()
 
 
+def _cleanup_stale_wal_files() -> None:
+    """If the main DB file is missing but WAL/SHM files exist, SQLite refuses
+    to open the connection with `disk I/O error`. This happens whenever a
+    user manually deletes data/jhh.db to "start over" but leaves the
+    journal sidecars behind. Detect and clean up so the user doesn't have
+    to know about SQLite internals.
+    """
+    main = settings.db_path
+    if main.exists():
+        return  # nothing to do — normal restart
+    for suffix in ("-wal", "-shm", "-journal"):
+        sidecar = main.with_name(main.name + suffix)
+        if sidecar.exists():
+            try:
+                sidecar.unlink()
+            except Exception:
+                pass
+
+
 def _connect() -> sqlite3.Connection:
+    _cleanup_stale_wal_files()
     conn = sqlite3.connect(str(settings.db_path), check_same_thread=False, isolation_level=None)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
