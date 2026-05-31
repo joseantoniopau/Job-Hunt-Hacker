@@ -1951,8 +1951,10 @@
       loadSettings();
     });
     $('#aa-disable').addEventListener('click', async () => {
-      const r = await api.post('/api/auto-apply/halt', {});
-      if (r.ok) toast('Auto-apply halted.', 'success');
+      // DISABLE = turn off runtime flag (different from HALT, which is
+      // the emergency kill switch). Use the dedicated endpoint.
+      const r = await api.post('/api/auto-apply/disable', {});
+      if (r.ok) toast('Auto-apply disabled.', 'success');
       $('#compliance-banner').classList.add('hidden');
       loadSettings();
     });

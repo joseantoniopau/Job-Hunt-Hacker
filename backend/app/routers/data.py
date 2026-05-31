@@ -265,6 +265,19 @@ def delete_all(
             log.warning("wipe: failed to reset user_profile: %s", exc)
             counts["user_profile"] = -1
 
+    # All saved_search rows were just deleted, so unregister their APScheduler
+    # jobs too — otherwise dangling cron jobs fire against missing DB rows.
+    try:
+        from ..integrations import scheduler as _sched
+        if hasattr(_sched, "unregister_all_saved_search_jobs"):
+            _sched.unregister_all_saved_search_jobs()
+        elif hasattr(_sched, "register_saved_searches"):
+            # Re-register (no rows → no jobs); APScheduler replace_existing
+            # semantics handle the diff.
+            _sched.register_saved_searches()
+    except Exception as exc:  # noqa: BLE001
+        log.warning("wipe: failed to clean scheduler jobs: %s", exc)
+
     # audit AFTER wipe so the record survives (audit_log was just cleared)
     audit("data_wipe", "data", None, counts=counts)
     return {"ok": True, "data": {"counts": counts}}

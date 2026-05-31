@@ -209,13 +209,18 @@ async def infer_profile(
     if not sources_used:
         notes.append("nothing supplied; returning blank draft")
 
-    return {
-        "ok": True,
-        "data": draft,
+    meta = {
         "inferred_fields": sorted(inferred_meta.keys()),
         "inferred_meta": inferred_meta,
         "sources_used": sources_used,
         "notes": notes,
+    }
+    # Embed the meta INSIDE data so the standard `{ok, data:{...}}` envelope
+    # holds. Keep the top-level keys for backward-compat with v0.1 callers.
+    return {
+        "ok": True,
+        "data": {**draft, **meta},
+        **meta,
     }
 
 
@@ -301,30 +306,38 @@ def _detect_location(resume_text: str | None, linkedin_text: str | None) -> str:
 def _collect_titles(resume: dict[str, Any], linkedin: dict[str, Any]) -> list[str]:
     """Build a forward-looking target_titles list.
 
-    Strategy: include the most recent role title verbatim, then derive a
-    "next rung" by promoting the seniority prefix (Senior → Staff, Staff →
-    Principal, Engineer II → Engineer III, etc.). We also keep one
-    sibling-discipline title (e.g. include "Engineering Manager" if user
-    is "Senior Engineer" with leadership claims).
+    target_titles must be CLEAN job-title strings — never "Title — Company
+    (dates)" suffixes. Strategy:
+      1. Take the most recent role title from `resume.experience[*].title`,
+         strip any "— Company" / "@ Company" / "(dates)" / trailing "()" noise.
+      2. Add the forward-looking promotion (Senior → Staff → Principal, etc.).
+      3. Add at most one sibling-discipline title (Senior Engineer →
+         Engineering Manager).
 
-    The user can edit any of these in Setup; this is just the smart default.
+    The user can edit any of these in Setup; this is the smart default.
     """
-    titles: list[str] = []
+    raw: list[str] = []
     for exp in (resume.get("experience") or []):
         t = (exp.get("title") or "").strip()
-        if t and 3 <= len(t) <= 80:
-            titles.append(t)
+        if t and 3 <= len(t) <= 120:
+            raw.append(t)
     # LinkedIn 'experience' is a single text block — grab the first title-looking line
     if linkedin:
         exp_block = (linkedin.get("sections") or {}).get("experience", "")
         for line in (exp_block or "").splitlines():
             s = line.strip()
-            if 3 <= len(s) <= 80 and not re.search(r"\d{4}", s):
+            if 3 <= len(s) <= 120 and not re.search(r"\d{4}", s):
                 if any(w[0].isupper() for w in s.split()[:3] if w):
-                    titles.append(s)
+                    raw.append(s)
                     break
 
-    # Forward-looking suggestion based on the most recent title
+    titles: list[str] = []
+    for t in raw:
+        cleaned = _clean_title(t)
+        if cleaned and 3 <= len(cleaned) <= 60:
+            titles.append(cleaned)
+
+    # Forward-looking suggestion based on the cleanest (first) title
     if titles:
         bumped = _bump_title(titles[0])
         for b in bumped:
@@ -332,6 +345,37 @@ def _collect_titles(resume: dict[str, Any], linkedin: dict[str, Any]) -> list[st
                 titles.append(b)
 
     return dedupe_preserve_order(titles)[:6]
+
+
+def _clean_title(raw: str) -> str:
+    """Strip employer + date noise from a role title string.
+
+    Examples:
+      "Staff Backend Engineer — Lattice Data Systems (2020-2023)" → "Staff Backend Engineer"
+      "Senior PM @ Stripe" → "Senior PM"
+      "Software Engineer | Acme | 2018 - Present" → "Software Engineer"
+      "Designer ()" → "Designer"
+    """
+    s = (raw or "").strip()
+    if not s:
+        return ""
+    # Remove anything from the first em-dash / hyphen / pipe / @ onward.
+    # These are the canonical "Title — Company" / "Title | Company" / "Title @ Company" separators.
+    for sep in (" — ", " – ", " | ", " @ ", " at "):
+        if sep in s:
+            s = s.split(sep, 1)[0].strip()
+    # Strip trailing date range: "Senior Engineer 2019-2022" / "PM 2020 - Present"
+    s = re.sub(r"\s+\d{4}\s*[-–—]\s*(?:\d{4}|present|now|current)\s*$",
+               "", s, flags=re.I).strip()
+    # Strip "(...) YYYY" patterns: "Senior Engineer (Brightline) 2019-2022"
+    s = re.sub(r"\s*\([^)]*\)\s*\d{4}.*$", "", s).strip()
+    # Strip any remaining trailing (…) — empty parens or date span at end
+    s = re.sub(r"\s*\([^)]*\)\s*$", "", s).strip()
+    # Strip trailing employer in plain hyphen form: "Title - Company"
+    s = re.sub(r"\s+-\s+[A-Z][A-Za-z0-9 .,&'-]+$", "", s).strip()
+    # Drop trailing punctuation
+    s = s.rstrip(" -,|·")
+    return s
 
 
 def _bump_title(title: str) -> list[str]:

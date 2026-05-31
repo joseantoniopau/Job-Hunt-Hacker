@@ -88,12 +88,20 @@ async def autopilot_start(
         ).fetchone()
         existing = row_to_dict(existing_row) or {}
 
+        # Coerce: calling a FastAPI router function directly (not via HTTP)
+        # bypasses FastAPI's parameter resolution, which would otherwise
+        # substitute the Form() defaults into real Python values. We must
+        # ensure non-string Form sentinels become None before passing through,
+        # or downstream parsers will choke on FormInfo objects.
+        def _s(v):
+            return v if isinstance(v, str) and v else None
+
         inf = await profile_router.infer_profile(
             resume_file=resume_file,
-            linkedin_text=linkedin_text,
-            linkedin_url=linkedin_url,
-            github_url=github_url,
-            portfolio_url=portfolio_url,
+            linkedin_text=_s(linkedin_text),
+            linkedin_url=_s(linkedin_url),
+            github_url=_s(github_url),
+            portfolio_url=_s(portfolio_url),
         )
         if not inf.get("ok"):
             raise RuntimeError("infer returned ok=false")
@@ -248,7 +256,9 @@ async def autopilot_start(
                                  "detail": f"{type(exc).__name__}: {exc}"})
 
     # 5. Pick the top jobs by score for tailoring + packets ---------------
+    # Dedupe by job_id so we never tailor the same job twice in one run.
     top_jobs: list[dict] = []
+    seen_ids: set[int] = set()
     try:
         sql = (
             "SELECT j.id, j.title, j.company, m.overall_score "
@@ -258,22 +268,34 @@ async def autopilot_start(
             "ORDER BY m.overall_score DESC LIMIT ?"
         )
         rows = get_conn().execute(sql, (float(min_score) / 100.0 if min_score > 1 else float(min_score),
-                                        max(tailor_top, packet_top))).fetchall()
+                                        max(tailor_top, packet_top) * 3)).fetchall()
         for r in rows:
-            top_jobs.append({"id": int(r[0]), "title": r[1], "company": r[2],
+            jid = int(r[0])
+            if jid in seen_ids:
+                continue
+            seen_ids.add(jid)
+            top_jobs.append({"id": jid, "title": r[1], "company": r[2],
                              "score": float(r[3])})
     except Exception as exc:  # noqa: BLE001
         log.debug("autopilot top-job query failed: %s", exc)
+
+    # Cap to tailor_top here so we tailor each job at most once
+    top_for_tailoring = top_jobs[: int(tailor_top)]
+    # Indexed by job_id so the packet step can reuse the tailored resume id
+    tailored_by_job: dict[int, int] = {}
 
     # 6. Tailor resumes for top N -----------------------------------------
     try:
         from ..tailoring.resume_tailor import tailor_resume
         tailored = []
         errors = 0
-        for j in top_jobs[: int(tailor_top)]:
+        for j in top_for_tailoring:
             try:
                 t = tailor_resume(j["id"])
-                tailored.append({"job_id": j["id"], "resume_id": t.get("id"),
+                rid = t.get("id")
+                if rid:
+                    tailored_by_job[j["id"]] = int(rid)
+                tailored.append({"job_id": j["id"], "resume_id": rid,
                                  "company": j["company"], "title": j["title"],
                                  "score": j["score"]})
             except Exception as exc:  # noqa: BLE001
@@ -283,28 +305,42 @@ async def autopilot_start(
         summary["tailoring"]["errors"] = errors
         summary["tailoring"]["resumes"] = tailored
         summary["steps"].append({"name": "tailoring_complete", "status": "ok",
-                                 "detail": f"tailored={len(tailored)} of {min(len(top_jobs), tailor_top)}"})
+                                 "detail": f"tailored={len(tailored)} of {len(top_for_tailoring)}"})
     except Exception as exc:  # noqa: BLE001
         log.warning("autopilot tailoring step failed: %s", exc)
         summary["steps"].append({"name": "tailoring_complete", "status": "error",
                                  "detail": f"{type(exc).__name__}: {exc}"})
 
-    # 7. Build packets for top M ------------------------------------------
+    # 7. Build packets for top M (dedupe + link tailored resume to app) --
     try:
         from ..applications.packet_builder import build as build_packet
-        from ..applications.pipeline import create_application
+        from ..applications.pipeline import create_application, update_application
         paths = []
+        seen_packet_ids: set[int] = set()
         for j in top_jobs[: int(packet_top)]:
+            if j["id"] in seen_packet_ids:
+                continue
+            seen_packet_ids.add(j["id"])
             try:
-                # Ensure an application row exists at status=prepared
-                app_id = create_application(job_id=j["id"], status="prepared",
-                                            mode="assisted",
-                                            notes="auto-prepared by Autopilot")
+                app_id = create_application(
+                    job_id=j["id"], status="prepared",
+                    mode="assisted",
+                    notes="auto-prepared by Autopilot",
+                    resume_id=tailored_by_job.get(j["id"]),
+                )
                 pkt = build_packet(j["id"])
                 if isinstance(pkt, dict):
+                    # Backfill resume link on existing app row (when create_
+                    # application reused a row without resume_id set).
+                    if tailored_by_job.get(j["id"]):
+                        try:
+                            update_application(app_id, {"resume_id": tailored_by_job[j["id"]]})
+                        except Exception:
+                            pass
                     paths.append({"job_id": j["id"], "company": j["company"],
                                   "title": j["title"], "score": j["score"],
                                   "application_id": app_id,
+                                  "resume_id": tailored_by_job.get(j["id"]),
                                   "packet_dir": pkt.get("packet_dir")})
             except Exception as exc:  # noqa: BLE001
                 log.debug("packet build failed for job %d: %s", j["id"], exc)

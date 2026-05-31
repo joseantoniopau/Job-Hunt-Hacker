@@ -37,12 +37,28 @@ def _deterministic_msg(job: dict, claims: list[dict], channel: str) -> dict:
     company = job.get("company") or "your team"
     ids: list[int] = []
     highlight = ""
-    for c in claims[:1]:
-        highlight = c.get("claim_text") or ""
-        ids.append(c["id"])
+    # Pick a SENTENCE-shaped accomplishment / role / leadership claim — not
+    # a bare skill token. "Most recently: postgresql." reads as a hallucinated
+    # experience claim; "Most recently shipped a payments fraud platform on
+    # AWS" is honest evidence-grounded copy.
+    SENTENCE_TYPES = ("role", "accomplishment", "responsibility", "leadership",
+                      "project", "metric", "experience")
+    for c in claims:
+        ctype = (c.get("claim_type") or "").lower()
+        text = (c.get("claim_text") or "").strip()
+        if not text:
+            continue
+        # Heuristic: sentence-shaped means >= 4 words and not a bare token
+        is_sentence = len(text.split()) >= 4
+        if ctype in SENTENCE_TYPES and is_sentence:
+            highlight = text
+            ids.append(c["id"])
+            break
+    # If no sentence-shaped claim was found, drop the "Most recently:" line
+    # entirely rather than dress a skill token as experience.
     body = (
         f"Hi — I came across the {role} listing at {company} and think my background is a strong fit. "
-        + (f"Most recently: {highlight}. " if highlight else "")
+        + (f"Most recently {highlight.rstrip('.')}. " if highlight else "")
         + "Open to a brief intro call this week? Thanks."
     )
     return {"text": _trim_to_120_words(body), "evidence_ids": ids}

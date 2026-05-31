@@ -22,6 +22,10 @@ def stats() -> dict:
     ).fetchall():
         pipeline[row[0]] = int(row[1])
 
+    # Profile completeness: a name is the canonical "has the user set up?" signal.
+    prof = c.execute("SELECT name FROM user_profile WHERE id=1").fetchone()
+    profile_set = bool(prof and (prof[0] or "").strip())
+
     return {
         "ok": True,
         "data": {
@@ -36,5 +40,6 @@ def stats() -> dict:
             "applications": cnt("SELECT COUNT(*) FROM application"),
             "saved_searches": cnt("SELECT COUNT(*) FROM saved_search WHERE enabled = 1"),
             "pipeline": pipeline,
+            "user_profile_set": profile_set,
         },
     }

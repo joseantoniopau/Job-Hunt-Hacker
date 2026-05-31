@@ -274,13 +274,31 @@ def _deterministic_resume(job: dict, claims_for_prompt: list[dict], style: dict)
 
     if by_employer:
         items = []
+        seen_texts: set[str] = set()
         for emp, cs in by_employer.items():
             for c in cs[:cap]:
+                raw = (c.get("claim_text") or "").strip()
+                if not raw:
+                    continue
+                # Skip contact-line garbage (header re-extracted as a claim):
+                # things like "Name | email | phone | linkedin.com | github.com"
+                lower = raw.lower()
+                if any(tok in lower for tok in ("@example.com",)):
+                    continue
+                if lower.count("|") >= 2 and ("linkedin.com" in lower or "github.com" in lower or "@" in lower):
+                    continue
+                # Dedupe by normalized text so the same bullet isn't shown twice
+                # under different evidence ids.
+                key = " ".join(lower.split())[:160]
+                if key in seen_texts:
+                    continue
+                seen_texts.add(key)
                 items.append({
-                    "text": (f"[{emp}] " if emp and emp != "Experience" else "") + (c.get("claim_text") or ""),
+                    "text": (f"[{emp}] " if emp and emp != "Experience" else "") + raw,
                     "evidence_ids": [c["id"]],
                 })
-        sections.append({"title": "Experience", "items": items[: cap * 3]})
+        if items:
+            sections.append({"title": "Experience", "items": items[: cap * 3]})
 
     if projects:
         sections.append({

@@ -30,16 +30,19 @@ def _deterministic_letter(job: dict, claims: list[dict], tone: str) -> dict:
     name = header.get("name") or "[Your Name]"
     company = job.get("company") or "the team"
     role = job.get("title") or "this role"
+    # Mark greeting / closing as kind="boilerplate" so guardrails honor
+    # them: they don't claim career facts and so don't need evidence_ids.
     intro = {"text": f"Dear Hiring Manager,\n\nI'm writing to express interest in the {role} position at {company}.",
-             "evidence_ids": []}
+             "evidence_ids": [], "kind": "boilerplate"}
     body_paragraphs: list[dict] = []
     for c in claims[:3]:
         text = (c.get("claim_text") or "").strip()
         if not text:
             continue
-        body_paragraphs.append({"text": text, "evidence_ids": [c["id"]]})
+        body_paragraphs.append({"text": text, "evidence_ids": [c["id"]],
+                                "kind": "body"})
     outro = {"text": "I'd welcome the chance to discuss how my background fits your needs.\n\nThank you,\n" + name,
-             "evidence_ids": []}
+             "evidence_ids": [], "kind": "boilerplate"}
     paragraphs = [intro] + body_paragraphs + [outro]
     return {"paragraphs": paragraphs, "gaps": []}
 
@@ -85,9 +88,17 @@ def generate(job_id: int, tone: str = "professional") -> dict:
     cleaned = guardrails.validate_provenance(structured, allowed_ids)
     dropped = (cleaned.get("honesty_report") or {}).get("dropped_segments") or []
 
+    # Provenance ONLY tracks "body" paragraphs (those making career claims).
+    # Boilerplate (greeting / closing) is informational, not evidence-bearing,
+    # so it doesn't move the coverage math. The README promise — "every
+    # SEGMENT MAKING A CAREER CLAIM ships only with evidence" — holds.
     pm = ProvenanceMap()
     for p_idx, p in enumerate(cleaned.get("paragraphs") or []):
-        pm.link(f"paragraphs[{p_idx}]", (p or {}).get("evidence_ids") or [])
+        if not isinstance(p, dict):
+            continue
+        if p.get("kind") == "boilerplate":
+            continue
+        pm.link(f"paragraphs[{p_idx}]", p.get("evidence_ids") or [])
 
     honesty = build_report(
         provenance=pm,

@@ -177,12 +177,19 @@ def event_ics(event_id: int) -> Response:
         raise HTTPException(404, f"calendar event {event_id} not found")
     rec = row_to_dict(row)
     raw = rec.get("raw_json") or {}
-    # if we stored an ics path, return that
+    # Prefer the saved .ics file written at create time — same UID + DTSTAMP
+    # the original event had — so repeat fetches are byte-identical and the
+    # downloaded file matches whatever calendar apps cached earlier.
     if isinstance(raw, dict) and raw.get("ics_path"):
         p = Path(raw["ics_path"])
         if p.exists():
-            return Response(p.read_text(encoding="utf-8"), media_type="text/calendar")
-    # otherwise generate fresh
+            return Response(
+                p.read_text(encoding="utf-8"),
+                media_type="text/calendar",
+                headers={"Content-Disposition": f'attachment; filename="event_{event_id}.ics"'},
+            )
+    # Fallback: regenerate fresh (new UID + DTSTAMP) only when the saved
+    # file is missing — e.g. data dir wiped.
     start = rec.get("start_time") or time.time()
     end = rec.get("end_time") or (start + 1800)
     from datetime import datetime, timezone

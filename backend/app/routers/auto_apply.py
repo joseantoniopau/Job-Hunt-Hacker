@@ -8,6 +8,8 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from ..applications import auto_apply, compliance, pipeline
+from ..config import settings
+from ..db import audit
 
 log = logging.getLogger("jhh.routers.auto_apply")
 
@@ -43,10 +45,24 @@ def halt() -> dict:
 def resume(body: ResumeBody) -> dict:
     if not body.i_understand:
         raise HTTPException(400, "explicit confirmation required: send {\"i_understand\": true}")
-    ok = compliance.resume(i_understand=True)
-    if not ok:
-        raise HTTPException(500, "could not lift kill switch")
-    return {"ok": True, "detail": "kill switch lifted", "data": compliance.status_snapshot()}
+    # "Resume" = (a) lift kill switch if set, AND (b) enable auto-apply at
+    # runtime so subsequent /run calls actually attempt. This matches the
+    # UI's modal flow (typed-ENABLE confirm) and avoids requiring the user
+    # to edit .env and restart.
+    compliance.resume(i_understand=True)
+    settings.auto_apply_enabled = True
+    audit("auto_apply_enabled", "settings", None, source="ui")
+    return {"ok": True, "detail": "auto-apply enabled and kill switch lifted",
+            "data": compliance.status_snapshot()}
+
+
+@router.post("/disable")
+def disable() -> dict:
+    """Disable auto-apply at runtime. /run will refuse subsequent calls."""
+    settings.auto_apply_enabled = False
+    audit("auto_apply_disabled", "settings", None, source="ui")
+    return {"ok": True, "detail": "auto-apply disabled",
+            "data": compliance.status_snapshot()}
 
 
 @router.get("/queue")

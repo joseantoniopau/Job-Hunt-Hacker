@@ -252,6 +252,105 @@ def _template_explanation(job: dict, scores: dict, ats: dict) -> str:
     return " ".join(pieces)
 
 
+# ----- ROLE FAMILY PENALTY ---------------------------------------------------
+
+# Coarse discipline buckets. Each family is a set of substring keywords; a
+# title is in a family if it contains any of the family's keywords.
+_ROLE_FAMILIES: dict[str, set[str]] = {
+    "engineering": {
+        "engineer", "developer", "swe", "sde", "programmer", "architect",
+        "tech lead", "staff", "principal", "sre", "devops", "infrastructure",
+        "platform", "backend", "frontend", "fullstack", "full-stack", "full stack",
+        "ios", "android", "mobile", "embedded", "firmware", "cloud",
+    },
+    "data": {
+        "data scientist", "data engineer", "machine learning", "ml engineer",
+        "ai engineer", "analytics engineer", "research scientist", "applied scientist",
+        "data analyst", "bi analyst", "statistician",
+    },
+    "design": {
+        "designer", "ux", "ui ", "product design", "visual design",
+        "graphic design", "brand design", "design lead",
+    },
+    "product": {
+        "product manager", "product owner", "program manager",
+        "product lead", "head of product",
+        "pm", "tpm",  # short tokens — _classify uses whole-word match for these
+    },
+    "marketing": {
+        "marketing", "growth", "demand gen", "content marketing", "seo",
+        "ppc", "brand strategist", "social media", "community manager",
+    },
+    "sales": {
+        "sales", "account executive", "ae ", "bdr", "sdr", "business development",
+        "customer success", "account manager",
+    },
+    "writing": {
+        "copywriter", "writer", "content strategist", "editor", "technical writer",
+        "journalist",
+    },
+    "operations": {
+        "operations", "people ops", "hr ", "recruiter", "talent acquisition",
+        "finance", "accounting", "controller", "legal counsel", "paralegal",
+        "executive assistant", "admin assistant", "office manager",
+    },
+    "support": {
+        "customer support", "support specialist", "support engineer",
+        "help desk", "service desk",
+    },
+    "security": {
+        "security engineer", "pentest", "appsec", "soc analyst", "ciso",
+        "infosec", "iam ", "grc",
+    },
+    "exec": {
+        "ceo", "cto", "cfo", "coo", "cmo", "vp ", "vice president",
+        "chief ", "founder", "managing director",
+    },
+}
+
+
+def _classify_role_families(title: str) -> set[str]:
+    t = (title or "").lower()
+    # Tokenize for whole-word abbreviation checks (PM, AE, etc.) — substring
+    # matching alone confuses "pm" inside "implementation".
+    import re as _re
+    tokens = set(_re.findall(r"[a-z]+", t))
+    families: set[str] = set()
+    for fam, kws in _ROLE_FAMILIES.items():
+        for kw in kws:
+            if " " in kw or len(kw) >= 4:
+                # Multi-word phrase or long single word: substring match
+                if kw in t:
+                    families.add(fam)
+                    break
+            else:
+                # Short abbrev (pm, ae, sde, etc.): require whole-token match
+                if kw.strip() in tokens:
+                    families.add(fam)
+                    break
+    return families
+
+
+def _role_family_penalty(job_title: str, target_titles: list[str]) -> float:
+    """Return 1.0 if the job's role family overlaps any of the user's
+    target_titles; 0.45 otherwise. When the user has no target_titles, we
+    can't penalize — return 1.0.
+    """
+    if not target_titles:
+        return 1.0
+    job_families = _classify_role_families(job_title)
+    if not job_families:
+        return 1.0  # title doesn't match any known family — don't penalize
+    user_families: set[str] = set()
+    for t in target_titles:
+        user_families |= _classify_role_families(t)
+    if not user_families:
+        return 1.0  # user's titles are also unclassifiable
+    if job_families & user_families:
+        return 1.0
+    return 0.45
+
+
 def _explain(job: dict, scores: dict, ats: dict) -> str:
     base = _template_explanation(job, scores, ats)
     if get_llm is None:
@@ -373,7 +472,18 @@ def score_job(job_id: int, weights: Optional[dict] = None) -> dict:
     overall = 0.0
     for k, w in eff_weights.items():
         overall += float(scores.get(k, 0.0)) * float(w)
+
+    # Role-family penalty: prevent a Senior Backend Engineer's resume from
+    # scoring well against a Copywriter / Designer / Sales / Marketing posting
+    # just because they share generic skills (Python, communication, etc).
+    # If the user's target_titles don't share a discipline family with the
+    # job title, multiply the overall score by 0.45.
+    penalty = _role_family_penalty(job.get("title") or "", user.get("target_titles") or [])
+    if penalty < 1.0:
+        red_flags_pre: list[str] = []  # captured below; remember we penalized
+    overall *= penalty
     scores["overall"] = round(overall, 4)
+    scores["role_family_penalty"] = round(penalty, 4)
 
     # Categorize keywords for the persisted lists
     matched = [k["keyword"] for k in ats["keywords"] if k["support_status"] == "supported"]
@@ -387,6 +497,8 @@ def score_job(job_id: int, weights: Optional[dict] = None) -> dict:
         red_flags.append("Salary below your stated minimum.")
     if scores["seniority"] < 0.4:
         red_flags.append(f"Level mismatch ({job_level}).")
+    if scores.get("role_family_penalty", 1.0) < 1.0:
+        red_flags.append("Role-family mismatch — job title is outside your target disciplines.")
 
     explanation = _explain(job, scores, ats)
 

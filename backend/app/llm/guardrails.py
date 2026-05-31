@@ -119,13 +119,17 @@ def validate_provenance(output: dict, evidence_ids_allowed: set[int] | Iterable[
         for p_idx, para in enumerate(out["paragraphs"]):
             if not isinstance(para, dict):
                 continue
-            # Allow empty-evidence paragraphs ONLY if they're non-claim (intro/outro).
-            # We treat first and last paragraphs as soft-exempt: keep but mark.
             ids = _coerce_id_list(para.get("evidence_ids"))
             clean = [i for i in ids if i in allowed]
             para["evidence_ids"] = clean
+            # Boilerplate paragraphs (greetings, closings) make no career
+            # claim and are explicitly tagged kind="boilerplate" by the
+            # caller. They don't need evidence_ids and are always kept.
+            # Edge paragraphs (idx 0 / last) are also soft-exempt when the
+            # LLM forgot to tag them.
+            is_boilerplate = (para.get("kind") == "boilerplate")
             is_edge = (p_idx == 0 or p_idx == len(out["paragraphs"]) - 1)
-            if not clean and not is_edge:
+            if not clean and not (is_boilerplate or is_edge):
                 dropped.append({
                     "where": f"paragraphs[{p_idx}]",
                     "text": (para.get("text") or "")[:240],

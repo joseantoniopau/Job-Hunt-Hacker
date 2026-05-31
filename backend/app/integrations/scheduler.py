@@ -255,6 +255,29 @@ def register_saved_searches() -> int:
     return n
 
 
+def unregister_all_saved_search_jobs() -> int:
+    """Remove every APScheduler job whose ID starts with `saved_search_`.
+
+    Called from DELETE /api/data after the saved_search table is wiped so
+    no cron jobs fire against missing DB rows.
+    """
+    s = _get_scheduler()
+    if s is None:
+        return 0
+    removed = 0
+    try:
+        for job in list(s.get_jobs()):
+            if (job.id or "").startswith("saved_search_"):
+                try:
+                    s.remove_job(job.id)
+                    removed += 1
+                except Exception:
+                    pass
+    except Exception:
+        pass
+    return removed
+
+
 # ---------- inbox sweep ----------
 
 def run_inbox_sweep() -> dict:
