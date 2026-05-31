@@ -34,10 +34,24 @@ def _headers() -> dict[str, str]:
     return h
 
 
+# Whitelist of hosts this module is allowed to call. Defense-in-depth:
+# all current callers use paths (resolved to api.github.com), but if a
+# future caller ever passes a full URL we won't fetch arbitrary hosts.
+_ALLOWED_HOSTS = {"api.github.com", "raw.githubusercontent.com"}
+
+
 def _get(path_or_url: str) -> tuple[int, Any]:
     if not _HTTPX_OK:
         raise RuntimeError("install httpx to use github_ingestion")
     url = path_or_url if path_or_url.startswith("http") else f"{_API}{path_or_url}"
+    # SSRF defense: refuse anything outside the GitHub host whitelist.
+    try:
+        host = (urlparse(url).hostname or "").lower()
+    except Exception:
+        host = ""
+    if host not in _ALLOWED_HOSTS:
+        log.warning("github GET refused for non-GitHub host: %s", host)
+        return 0, {"error": f"refused: {host} is not a GitHub host"}
     try:
         r = httpx.get(url, headers=_headers(), timeout=_TIMEOUT, follow_redirects=True)
     except Exception as e:  # noqa: BLE001
