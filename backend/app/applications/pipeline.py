@@ -163,7 +163,9 @@ def _alias_app(d: dict | None) -> dict | None:
     if "job_apply_url" in out:
         out["url"] = out["job_apply_url"]
     if "overall_score" in out:
-        out["score"] = out["overall_score"]
+        # Scorer stores 0-1; UI consumes 0-100 (match _alias_job in jobs router)
+        v = out["overall_score"]
+        out["score"] = int(round(float(v) * 100)) if v is not None else None
     # packet_path: read from audit_json history if recorded; else empty
     try:
         hist = out.get("audit_json")

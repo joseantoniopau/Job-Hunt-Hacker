@@ -6,75 +6,78 @@
     "apply_automation_allowed": false,
     "recommended_mode": "research",
     "risk_level": "GRAY",
-    "notes": "Scraping major boards may violate TOS. Use proxies for LinkedIn. Default to assisted-apply."
+    "notes": "Scraping major boards may violate TOS. Use proxies for LinkedIn. Default to assisted-apply; do not auto-prep packets — user clicks through."
   },
   "remoteintech": {
     "display_name": "Remote In Tech company directory",
     "official_api": false,
     "scraping": false,
-    "apply_automation_allowed": false,
+    "apply_automation_allowed": true,
     "recommended_mode": "research",
     "risk_level": "LEGAL",
-    "notes": "Company seed list, ~880 companies. Not a job feed — links to career pages."
+    "notes": "Company seed list (~880 companies). Auto-prep means we build a packet pointing at the careers URL — submission is still manual."
   },
   "greenhouse": {
     "display_name": "Greenhouse public job board API",
     "official_api": true,
     "scraping": false,
-    "apply_automation_allowed": false,
+    "apply_automation_allowed": true,
     "recommended_mode": "assisted",
     "risk_level": "LEGAL",
-    "notes": "Public API. Apply through company site; do not automate submissions."
+    "notes": "Public API. Auto-prep builds a packet referencing the Greenhouse apply URL; user reviews + submits."
   },
   "lever": {
     "display_name": "Lever public postings API",
     "official_api": true,
     "scraping": false,
-    "apply_automation_allowed": false,
+    "apply_automation_allowed": true,
     "recommended_mode": "assisted",
     "risk_level": "LEGAL",
-    "notes": "Public API. Apply through company site."
+    "notes": "Public API. Auto-prep builds a packet; user reviews + submits."
   },
   "ashby": {
     "display_name": "Ashby public job board API",
     "official_api": true,
     "scraping": false,
-    "apply_automation_allowed": false,
+    "apply_automation_allowed": true,
     "recommended_mode": "assisted",
     "risk_level": "LEGAL",
-    "notes": "Public API. Apply through company site."
+    "notes": "Public API. Auto-prep builds a packet; user reviews + submits."
   },
   "remotive": {
     "display_name": "Remotive remote jobs API",
     "official_api": true,
     "scraping": false,
-    "apply_automation_allowed": false,
+    "apply_automation_allowed": true,
     "recommended_mode": "assisted",
-    "risk_level": "LEGAL"
+    "risk_level": "LEGAL",
+    "notes": "Public API. Auto-prep builds a packet; user reviews + submits."
   },
   "wwr": {
     "display_name": "We Work Remotely RSS",
     "official_api": true,
     "scraping": false,
-    "apply_automation_allowed": false,
+    "apply_automation_allowed": true,
     "recommended_mode": "assisted",
-    "risk_level": "LEGAL"
+    "risk_level": "LEGAL",
+    "notes": "Public RSS feed. Auto-prep builds a packet; user reviews + submits."
   },
   "google_jobs": {
     "display_name": "Google Jobs via SerpApi/SearchAPI",
     "official_api": true,
     "scraping": false,
-    "apply_automation_allowed": false,
+    "apply_automation_allowed": true,
     "recommended_mode": "assisted",
     "risk_level": "LEGAL",
-    "notes": "Requires SERPAPI_API_KEY or SEARCHAPI_API_KEY."
+    "notes": "Requires SERPAPI_API_KEY or SEARCHAPI_API_KEY. Auto-prep builds a packet; user reviews + submits."
   },
   "custom_rss": {
     "display_name": "User-defined RSS feeds",
     "official_api": true,
     "scraping": false,
-    "apply_automation_allowed": false,
+    "apply_automation_allowed": true,
     "recommended_mode": "assisted",
-    "risk_level": "LEGAL"
+    "risk_level": "LEGAL",
+    "notes": "Auto-prep builds a packet; user reviews + submits."
   }
 }

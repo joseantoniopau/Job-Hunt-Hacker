@@ -88,7 +88,7 @@ def export_all() -> Response:
     conn = get_conn()
     bundle: dict[str, Any] = {
         "version": EXPORT_VERSION,
-        "app_version": "0.1.0",
+        "app_version": "0.2.0",
         "exported_at": datetime.now(timezone.utc).isoformat(),
         "tables": {},
     }

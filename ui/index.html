@@ -489,9 +489,23 @@
         <div class="form-actions">
           <button class="btn btn-primary" type="submit">SEARCH</button>
           <button class="btn btn-ghost small" type="button" id="reload-jobs">RELOAD STORED</button>
+          <button class="btn btn-secondary small" type="button" id="save-search-btn">SAVE THIS SEARCH (DAILY)</button>
           <span id="search-status" class="status-line"></span>
         </div>
       </form>
+
+      <section class="card">
+        <header class="card-head">
+          <h3>Saved searches</h3>
+          <button class="btn btn-ghost small" id="saved-searches-reload">REFRESH</button>
+        </header>
+        <div class="table-wrap">
+          <table class="data-table" id="saved-searches-table">
+            <thead><tr><th>ID</th><th>LABEL</th><th>QUERY</th><th>EVERY (h)</th><th>LAST RUN</th><th>ENABLED</th><th>ACTIONS</th></tr></thead>
+            <tbody><tr><td colspan="7" class="empty">None yet. Save your current search to run it every N hours.</td></tr></tbody>
+          </table>
+        </div>
+      </section>
 
       <section class="card">
         <header class="card-head">
@@ -692,6 +706,39 @@ Select a resume to preview.
         <ul id="slot-list" class="bullets"></ul>
       </section>
 
+      <section class="card">
+        <header class="card-head">
+          <h3>Create interview event</h3>
+          <span class="muted small">saved to Google Calendar if connected; otherwise to a local .ics file</span>
+        </header>
+        <form id="cal-create-form" class="stack" novalidate>
+          <div class="three-col">
+            <label>Title
+              <input type="text" name="title" placeholder="Interview with Stripe" required />
+            </label>
+            <label>Start
+              <input type="datetime-local" name="start" required />
+            </label>
+            <label>End
+              <input type="datetime-local" name="end" required />
+            </label>
+          </div>
+          <label>Attendees <em class="muted small">(comma-separated emails)</em>
+            <input type="text" name="attendees" placeholder="recruiter@company.com, you@email.com" />
+          </label>
+          <label>Application ID <em class="muted small">(optional — link to pipeline)</em>
+            <input type="number" name="application_id" />
+          </label>
+          <label>Description
+            <textarea name="description" rows="3" placeholder="Meeting agenda, links, notes…"></textarea>
+          </label>
+          <div class="form-actions">
+            <button class="btn btn-primary" type="submit">CREATE EVENT</button>
+            <span id="cal-create-status" class="status-line"></span>
+          </div>
+        </form>
+      </section>
+
       <div id="cal-status" class="banner banner-muted hidden"></div>
 
       <section class="card">
@@ -728,12 +775,15 @@ Select a resume to preview.
       <section class="card">
         <header class="card-head">
           <h3>Job source connectors</h3>
-          <span class="muted small">risk badges per <code>source_policies.json</code></span>
+          <div class="form-actions" style="margin:0;">
+            <button class="btn btn-secondary small" id="sources-test-all">TEST ALL</button>
+            <span id="sources-test-status" class="status-line"></span>
+          </div>
         </header>
         <div class="table-wrap">
           <table class="data-table" id="sources-table">
-            <thead><tr><th>NAME</th><th>HEALTHY</th><th>RISK</th><th>AUTO-APPLY OK</th><th>NOTE</th></tr></thead>
-            <tbody><tr><td colspan="5" class="empty">Loading source policies&hellip;</td></tr></tbody>
+            <thead><tr><th>NAME</th><th>HEALTHY</th><th>RISK</th><th>AUTO-APPLY OK</th><th>NOTE</th><th>TEST</th><th>STATUS</th></tr></thead>
+            <tbody><tr><td colspan="7" class="empty">Loading source policies&hellip;</td></tr></tbody>
           </table>
         </div>
       </section>

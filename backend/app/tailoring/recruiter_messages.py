@@ -78,6 +78,20 @@ def generate(job_id: int, channel: str = "email") -> dict:
     cleaned = guardrails.validate_provenance(structured, allowed_ids)
     dropped = (cleaned.get("honesty_report") or {}).get("dropped_segments") or []
 
+    # NO-FABRICATION RULE: if after guardrail-cleaning the message has no
+    # supporting evidence_ids, blank the text and fall back to the
+    # deterministic claim-stitched message (which is guaranteed to cite
+    # at least one evidence id by construction).
+    if not (cleaned.get("evidence_ids") or []):
+        fallback = _deterministic_msg(job, claims, channel)
+        if fallback.get("evidence_ids"):
+            cleaned = fallback
+        else:
+            # No evidence at all — return empty text rather than ship
+            # an unsupported one-liner.
+            cleaned["text"] = ""
+            cleaned["evidence_ids"] = []
+
     pm = ProvenanceMap()
     pm.link("message", cleaned.get("evidence_ids") or [])
 

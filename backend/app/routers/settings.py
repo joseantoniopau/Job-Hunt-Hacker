@@ -124,7 +124,7 @@ def get_settings() -> dict:
     return {
         "ok": True,
         "data": {
-            "version": "0.1.0",
+            "version": "0.2.0",
             "default_mode": settings.default_mode,
             "auto_apply_enabled": settings.auto_apply_enabled,
             "auto_apply_daily_cap": settings.auto_apply_daily_cap,

@@ -30,12 +30,22 @@ def test_kill_switch_lifecycle():
     assert compliance.kill_switch_active() is False
 
 
-def test_legal_source_still_blocked_by_policy():
-    """Greenhouse is LEGAL but has apply_automation_allowed=False, so the
-    aggregate gate must still return False."""
-    allowed, reason = compliance.is_auto_apply_allowed("greenhouse")
+def test_legal_source_is_allowed():
+    """LEGAL adapters (Greenhouse / Lever / Ashby / Remotive / WWR / Google
+    Jobs) may have packets auto-prepared. Submission is still manual — the
+    auto_apply pipeline writes status=auto_packet_ready for human review.
+    """
+    for src in ("greenhouse", "lever", "ashby", "remotive", "wwr"):
+        allowed, reason = compliance.is_auto_apply_allowed(src)
+        assert allowed is True, f"{src}: {reason}"
+
+
+def test_gray_source_blocked():
+    """GRAY-risk adapters (JobSpy) must NEVER permit auto-prep — user
+    clicks through manually because scraping major boards may violate TOS."""
+    allowed, reason = compliance.is_auto_apply_allowed("jobspy")
     assert allowed is False
-    assert "automation" in reason.lower() or "policy" in reason.lower()
+    assert "GRAY" in reason or "blocked" in reason.lower()
 
 
 def test_unknown_source_is_blocked():

@@ -42,11 +42,13 @@ def _candidate_jobs(job_ids: list[int] | None) -> list[dict]:
             if row:
                 out.append(row_to_dict(row))
         return out
-    # default: top N by score, status=new
+    # Default: top N by score, status=new. Settings stores min_score on a
+    # 0-100 scale but the scorer persists overall_score on a 0-1 scale, so
+    # we divide before the SQL filter.
     return list_jobs(
         limit=_DEFAULT_CANDIDATE_LIMIT,
         status="new",
-        min_score=int(settings.auto_apply_min_score),
+        min_score=float(settings.auto_apply_min_score) / 100.0,
     )
 
 
@@ -58,7 +60,9 @@ def attempt(job_ids: list[int] | None = None) -> dict:
 
     today_count = compliance.today_applied_count()
     cap = int(settings.auto_apply_daily_cap)
-    min_score = int(settings.auto_apply_min_score)
+    # Settings expresses min_score as 0-100; scorer stores 0-1. Normalize once.
+    min_score_pct = int(settings.auto_apply_min_score)
+    min_score_unit = float(min_score_pct) / 100.0
 
     prepared: list[dict] = []
     skipped: list[dict] = []
@@ -79,10 +83,13 @@ def attempt(job_ids: list[int] | None = None) -> dict:
             skipped.append({"job_id": jid, "reason": reason})
             continue
 
-        # score check
+        # score check (scorer is 0-1, threshold is 0-100)
         score = job.get("overall_score")
-        if score is None or float(score) < min_score:
-            skipped.append({"job_id": jid, "reason": f"score_below_threshold ({score} < {min_score})"})
+        if score is None or float(score) < min_score_unit:
+            skipped.append({
+                "job_id": jid,
+                "reason": f"score_below_threshold ({int(float(score or 0)*100)} < {min_score_pct})",
+            })
             continue
 
         # dedupe: don't reprepare for jobs we've already touched
@@ -134,7 +141,7 @@ def attempt(job_ids: list[int] | None = None) -> dict:
         "capped": capped,
         "today_count": today_count,
         "cap": cap,
-        "min_score": min_score,
+        "min_score": min_score_pct,
     }
 
 

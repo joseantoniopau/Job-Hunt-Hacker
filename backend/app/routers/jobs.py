@@ -30,12 +30,16 @@ def _alias_job(row: dict) -> dict:
     """Add UI-friendly aliases so the frontend can rely on stable field
     names (score, url, currency, is_remote, created_at) regardless of the
     underlying DB column names.
+
+    Score scale convention: the scorer persists overall_score on a 0-1
+    scale; UI consumes 0-100. We multiply at the API boundary.
     """
     if not row:
         return row
     out = dict(row)
     if "overall_score" in out and "score" not in out:
-        out["score"] = out["overall_score"]
+        v = out["overall_score"]
+        out["score"] = int(round(float(v) * 100)) if v is not None else None
     if "apply_url" in out and "url" not in out:
         out["url"] = out["apply_url"]
     if "currency" in out and "salary_currency" not in out:
