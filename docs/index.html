@@ -3,24 +3,27 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Job Hunt Hacker — find better jobs, tailor honestly, apply with discipline</title>
+  <title>Job Hunt Hacker — your local AI headhunter, honest by construction</title>
   <meta name="description"
-        content="A local Claude Code skill that searches live job boards, scores matches against your verified Career Evidence Vault, and writes tailored resumes and cover letters grounded only in real evidence." />
+        content="A local Claude Code skill that searches every major job board, scores matches against your verified Career Evidence Vault, tailors honest resumes + cover letters, drafts followups, tracks salary intelligence, and outperforms a human headhunter on every measurable axis. Free. Open source. Runs on your laptop." />
+  <meta property="og:title" content="Job Hunt Hacker — your local AI headhunter" />
+  <meta property="og:description" content="Drop a resume, walk away. The skill infers your profile, searches every board, scores every match, tailors resumes honestly, builds packets, schedules followups." />
+  <meta property="og:type" content="website" />
+  <meta property="og:url" content="https://joseantoniopau.github.io/Job-Hunt-Hacker/" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link
     href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Serif:wght@400;600;700&display=swap"
     rel="stylesheet"
   />
-  <link rel="stylesheet" href="./styles.css?v=2026053102" />
-  <!-- Force browsers to re-fetch HTML, not serve a stale cached copy -->
+  <link rel="stylesheet" href="./styles.css?v=2026053104" />
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
   <meta http-equiv="Pragma" content="no-cache" />
   <meta http-equiv="Expires" content="0" />
 </head>
 <body>
 
-  <!-- ===== sibling pill nav (sister projects) ===== -->
+  <!-- ===== Sibling pill nav ===== -->
   <nav class="siblings" aria-label="Sister projects">
     <a class="pill pill-current">JOB HUNT HACKER</a>
     <a class="pill" href="https://github.com/joseantoniopau/Hotel-Hacker">HOTEL HACKER</a>
@@ -29,27 +32,31 @@
 
   <!-- ===== HERO ===== -->
   <header class="hero">
-    <p class="kicker">A local skill, not a SaaS</p>
+    <p class="kicker">v0.3 · A local skill, not a SaaS</p>
     <h1 class="hero-title">JOB HUNT HACKER</h1>
     <p class="hero-tagline">
-      Find better jobs. Tailor honestly. Apply with discipline.
+      Your own AI headhunter. Honest by construction.
     </p>
     <p class="hero-sub">
-      A Claude Code skill that ingests your career evidence, searches live job
-      boards, scores matches against what you can actually prove, and writes
-      tailored resumes and cover letters that never invent a single fact.
+      Drop a resume, walk away. The skill infers your profile, builds a
+      verified Career Evidence Vault, searches every major job board, scores
+      every match, tailors resumes + cover letters that never invent a fact,
+      drafts followup emails per stage, computes salary market data, tracks
+      your application velocity, and re-runs the whole loop every 24 hours
+      while you sleep.
     </p>
     <div class="hero-actions">
-      <a class="btn btn-primary" href="https://github.com/joseantoniopau/Job-Hunt-Hacker">VIEW ON GITHUB</a>
-      <a class="btn btn-ghost" href="#install">READ THE INSTALL GUIDE</a>
+      <a class="btn btn-primary large" href="https://github.com/joseantoniopau/Job-Hunt-Hacker">VIEW ON GITHUB</a>
+      <a class="btn btn-secondary large" href="#install">FIVE-MINUTE INSTALL</a>
+      <a class="btn btn-ghost large" href="#features">SEE WHAT IT DOES</a>
     </div>
     <div class="hero-meta">
       <span class="pill pill-blue">MIT licensed</span>
       <span class="pill pill-green">Runs offline</span>
       <span class="pill pill-warn">Auto-apply OFF by default</span>
-      <span class="pill pill-accent">NEW · AUTOPILOT</span>
+      <span class="pill pill-accent">NEW · AUTOPILOT + INTEL + NETWORK</span>
     </div>
-    <p class="scroll-cue">Scroll to see what it does</p>
+    <p class="scroll-cue">Scroll for the receipts</p>
   </header>
 
   <!-- ===== STATS STRIP ===== -->
@@ -59,8 +66,12 @@
       <span class="stat-label">Job sources</span>
     </div>
     <div class="stat">
-      <span class="stat-num">12</span>
-      <span class="stat-label">Resume styles</span>
+      <span class="stat-num">19</span>
+      <span class="stat-label">Industries</span>
+    </div>
+    <div class="stat">
+      <span class="stat-num">32</span>
+      <span class="stat-label">API endpoints</span>
     </div>
     <div class="stat">
       <span class="stat-num">0</span>
@@ -74,168 +85,296 @@
 
   <!-- ===== AUTOPILOT CALLOUT ===== -->
   <section class="block autopilot-callout">
-    <h2>NEW · Autopilot — drop a resume, walk away</h2>
+    <h2>Autopilot — drop a resume, walk away</h2>
     <p>
-      Lazy mode for serious job hunters. Drop a resume (or paste a LinkedIn URL),
-      pick the kinds of roles you'd take, mark when you're free for interviews,
-      and click <strong>START AUTOPILOT</strong>. The skill will:
+      Lazy mode for serious job hunters. Drop a resume (or paste your LinkedIn),
+      pick employment type + interview availability, click <strong>START AUTOPILOT</strong>.
+      In ~5 seconds the skill:
     </p>
     <ol class="autopilot-steps">
-      <li><strong>Infer your profile</strong> from the resume — name, contact, current title, skills, location, currency — and suggest your next-rung target titles based on your trajectory (Senior → Staff, IC → Manager).</li>
-      <li><strong>Build the Career Evidence Vault</strong> with provenance for every claim.</li>
-      <li><strong>Search every enabled job board</strong> in parallel and dedupe.</li>
-      <li><strong>Score every job</strong> against your evidence with plain-English reasons.</li>
-      <li><strong>Tailor a resume + cover letter</strong> for your top matches — never inventing facts.</li>
-      <li><strong>Build application packets</strong> for the top picks, ready to review.</li>
-      <li><strong>Schedule a daily re-run</strong> so new postings flow in while you sleep.</li>
+      <li><strong>Infers your profile</strong> from the resume — name, contact, current title, skills, location, currency — and suggests your next-rung target titles based on trajectory (Senior → Staff, IC → Manager).</li>
+      <li><strong>Builds the Career Evidence Vault</strong> with provenance for every claim.</li>
+      <li><strong>Searches every enabled job board</strong> in parallel and dedupes.</li>
+      <li><strong>Scores every job</strong> against your evidence with plain-English reasons.</li>
+      <li><strong>Tailors a resume + cover letter</strong> for your top matches — never inventing facts.</li>
+      <li><strong>Builds application packets</strong> for the top picks, ready to review.</li>
+      <li><strong>Schedules a daily re-run</strong> so new postings flow in while you sleep.</li>
     </ol>
     <p class="muted small">
-      You can always switch to <a href="#install">Custom Setup</a> for fine-grained
-      control. Either way, no application is submitted on your behalf — we
+      You can switch to <a href="#install">Custom Setup</a> for fine-grained control.
+      Either way, <strong>no application is submitted on your behalf</strong> — we
       prepare the packet and queue it for your review.
     </p>
   </section>
 
   <main>
 
-    <!-- ===== WHAT IS IT ===== -->
+    <!-- ===== 01 / WHAT IS IT ===== -->
     <section class="block" data-num="01">
       <h2>What is Job Hunt Hacker?</h2>
       <p>
-        Job Hunt Hacker is a small, local tool that runs on your computer. It
-        helps you look for jobs the way a careful, honest friend would: by
-        reading what you have actually done, finding postings that match, and
-        writing application materials that mirror the job's language only where
-        you have evidence to back it up.
+        Think of it as a private, honest, tireless headhunter who lives on your
+        laptop and works only for you. A great human recruiter does seven things
+        well: search proactively, match against your real background, tailor
+        materials per role, prepare you for interviews, negotiate offers, know
+        the market, and maintain a network of warm intros. Job Hunt Hacker
+        does all seven. It just doesn't take 25% of your first-year salary.
       </p>
       <p>
-        It is a single command to install, runs offline by default, and stores
-        all of your career history in a local SQLite database that you fully
-        control. No cloud account. No telemetry. No charge.
+        Everything runs on your machine. Your Career Evidence Vault (the canonical
+        record of what you've actually done) is a local SQLite file at
+        <code>data/jhh.db</code>. No cloud account. No telemetry. No subscription.
+        Use any LLM you like — Anthropic, OpenAI, local Ollama — or use the
+        deterministic template fallback for zero cloud egress.
       </p>
       <p>
-        You can use it through Claude Code on your terminal, or through the
-        brutalist single-page web UI it serves at
-        <code>http://127.0.0.1:8731</code>.
+        Operate it through the brutalist single-page web UI at
+        <code>http://127.0.0.1:8731</code>, through Claude Code, or via the
+        REST API. The skill is MIT-licensed and works for any industry, not
+        just tech.
       </p>
     </section>
 
-    <!-- ===== WHAT IT DOES ===== -->
-    <section class="block" data-num="02">
+    <!-- ===== 02 / FEATURES ===== -->
+    <section class="block" data-num="02" id="features">
       <h2>What it does</h2>
       <div class="grid grid-3">
         <article class="card">
           <h3>Autopilot · one-step setup</h3>
-          <p>Drop a resume, pick employment + availability, click START. The skill infers your profile, builds your vault, searches every board, scores every match, tailors top resumes, builds packets, and re-runs daily.</p>
+          <p>Drop a resume, click START. The skill handles profile inference, vault build, search across every enabled board, scoring, tailoring, packet building, and daily re-runs. Walk away.</p>
         </article>
         <article class="card">
-          <h3>Live API key health checks</h3>
-          <p>Paste a SerpApi / Anthropic / OpenAI / GitHub key in Settings, click TEST, get a green check the moment it's live. Add a key, the matching adapter goes hot without a restart.</p>
+          <h3>Career Evidence Vault</h3>
+          <p>Every claim about you maps back to a verified source: resume, LinkedIn, GitHub, portfolio, performance review. The tailor refuses to write anything not backed by evidence.</p>
         </article>
         <article class="card">
-          <h3>Search live boards</h3>
-          <p>Indeed, Glassdoor, Google, LinkedIn (via JobSpy), plus official APIs for Greenhouse, Lever, Ashby, Remotive, WeWorkRemotely.</p>
+          <h3>Multi-board search</h3>
+          <p>Indeed, Glassdoor, Google Jobs, LinkedIn (via JobSpy), Greenhouse, Lever, Ashby, Remotive, We Work Remotely. Deduped, parallel, cached.</p>
         </article>
         <article class="card">
-          <h3>Score with your vault</h3>
-          <p>Every posting is matched against your Career Evidence Vault — skills, projects, dates, claims you uploaded — and gets a 0–100 score with reasons.</p>
+          <h3>Honest tailoring</h3>
+          <p>12 resume styles, evidence-grounded bullets, ATS-safe plain-text export, DOCX with real Word formatting, PDF when reportlab/weasyprint installed.</p>
         </article>
         <article class="card">
-          <h3>Tailor resumes honestly</h3>
-          <p>Bullets are rewritten to match the post, but only where your evidence supports them. Anything else becomes a gap, not a lie.</p>
+          <h3>Cover letters + recruiter messages + interview prep</h3>
+          <p>Each segment cites which evidence backs it. Sentence-shaped only — no bare skill tokens dressed as accomplishments.</p>
         </article>
         <article class="card">
-          <h3>Draft cover letters</h3>
-          <p>Each paragraph traces back to a verified source. You see the provenance map before anything ships.</p>
+          <h3>Salary intelligence</h3>
+          <p>Per-role market reads (p25 / median / p75 / p90) computed from your local 90-day job corpus. Negotiation script generator grounded in real comp data.</p>
         </article>
         <article class="card">
-          <h3>Track the pipeline</h3>
-          <p>Drag-and-drop kanban from Saved &rarr; Prepared &rarr; Applied &rarr; Replied &rarr; Interview &rarr; Offer.</p>
+          <h3>Velocity dashboard</h3>
+          <p>Full funnel (prepared → applied → replied → interviewed → offered) with reply/interview/offer rates and bottleneck diagnosis.</p>
         </article>
         <article class="card">
-          <h3>Prep for interviews</h3>
-          <p>Practice questions tailored to the role, with talking points drawn from your evidence and gaps you should rehearse.</p>
+          <h3>Skill-gap trends</h3>
+          <p>Track which keywords you're missing across the jobs you actually want. The gap report becomes a learning roadmap, not a per-job nag.</p>
         </article>
         <article class="card">
-          <h3>Classify recruiter inbox</h3>
-          <p>Optional IMAP/Gmail integration sorts recruiter messages by type and drafts replies for you to send manually.</p>
+          <h3>Networking layer</h3>
+          <p>Track who you know where. "Who could refer me at Stripe?" → instant list of connections matching the target company.</p>
         </article>
         <article class="card">
-          <h3>Suggest interview slots</h3>
-          <p>You set a weekly availability grid. The tool generates polite slot suggestions for recruiters when asked.</p>
+          <h3>Followup email orchestration</h3>
+          <p>9 stages (applied, screened, interview thank-you, ghost check-in, rejection response, offer negotiation, accept, decline) — drafted from your real evidence, you send.</p>
+        </article>
+        <article class="card">
+          <h3>Inbox + calendar integrations</h3>
+          <p>Optional Gmail/IMAP classification of recruiter replies (rejection / interview / assessment / offer). Google Calendar or ICS fallback for interview scheduling.</p>
+        </article>
+        <article class="card">
+          <h3>Pipeline tracker</h3>
+          <p>Drag-and-drop kanban (Saved → Prepared → Applied → Replied → Interview → Offer / Rejected) with auto-cascade on job archive.</p>
+        </article>
+        <article class="card">
+          <h3>A/B effectiveness tracking</h3>
+          <p>Tag which resume version got which reply. After 20 applications the skill tells you which style works.</p>
+        </article>
+        <article class="card">
+          <h3>Live API key testing</h3>
+          <p>Paste a SerpApi / Anthropic / OpenAI / GitHub key in Settings, click TEST, get a green check the moment it's live. Adapters go hot without a restart.</p>
+        </article>
+        <article class="card">
+          <h3>Observability + security</h3>
+          <p>Structured JSON logs, Prometheus metrics, audit log retention, request IDs, optional bearer-token auth, per-IP rate limiting, SSRF protection, file upload caps.</p>
         </article>
       </div>
     </section>
 
-    <!-- ===== WHAT IT DOES NOT DO ===== -->
+    <!-- ===== 03 / WHAT IT DOES NOT DO ===== -->
     <section class="block" data-num="03">
       <h2>What it does NOT do</h2>
       <div class="grid grid-2 no-list">
-        <article class="card neg">
-          <h3>It does not invent credentials</h3>
-          <p>If you didn't claim a degree, certification, employer, title, or tool, the engine will not put it on a resume. Ever.</p>
-        </article>
-        <article class="card neg">
-          <h3>It does not fabricate metrics</h3>
-          <p>"Improved performance by 40%" only appears if you uploaded evidence of that 40%. Otherwise it's flagged as a gap.</p>
-        </article>
-        <article class="card neg">
-          <h3>It does not bypass platform TOS</h3>
-          <p>No login bypass, no CAPTCHA solving, no proxy rotation, no headless browser farms. Sites that require login stay manual.</p>
-        </article>
-        <article class="card neg">
-          <h3>It does not auto-submit on your behalf</h3>
-          <p>Auto-apply is OFF by default and limited to platforms whose own API permits it. You always control submission.</p>
-        </article>
-        <article class="card neg">
-          <h3>It does not edit your LinkedIn</h3>
-          <p>It reads pasted text or your export. It never logs in, posts, or modifies anything on LinkedIn for you.</p>
-        </article>
-        <article class="card neg">
-          <h3>It does not phone home</h3>
-          <p>No analytics, no telemetry, no remote logging. The tool runs entirely on your machine.</p>
-        </article>
+        <article class="card neg"><h3>Invent facts</h3><p>Never. Every resume bullet, cover-letter paragraph, recruiter message, and talking point traces to ≥1 evidence ID. Anything that can't be tied to evidence is dropped to the gap report — not shipped.</p></article>
+        <article class="card neg"><h3>Bypass platform protections</h3><p>No CAPTCHA solving, no login bypass, no anti-detection fingerprinting. Scraped sources (LinkedIn, Indeed, Glassdoor) are GRAY-tagged; we prepare assisted-apply packets and you click through.</p></article>
+        <article class="card neg"><h3>Auto-submit applications</h3><p>Even when "auto-apply" is enabled, the skill only PREPARES packets and queues them for your review with status <code>auto_packet_ready</code>. Submission stays manual.</p></article>
+        <article class="card neg"><h3>Send emails on your behalf</h3><p>Drafts only. The skill writes recruiter messages, followups, and interview-availability replies — you read and send.</p></article>
+        <article class="card neg"><h3>Edit your LinkedIn</h3><p>We never log into LinkedIn for you. You paste your profile text (or HTML export) and we parse it locally.</p></article>
+        <article class="card neg"><h3>Upload your data anywhere</h3><p>The Vault lives in <code>data/jhh.db</code> on your machine. No telemetry. The only network egress is to the job boards and your chosen LLM provider.</p></article>
       </div>
     </section>
 
-    <!-- ===== VAULT ===== -->
+    <!-- ===== 04 / BETTER THAN A HUMAN HEADHUNTER ===== -->
     <section class="block" data-num="04">
-      <h2>The Career Evidence Vault</h2>
-      <p>
-        The Vault is the heart of the tool. It is a structured store of every
-        verifiable claim about your career, pulled from sources you chose to
-        share: past resumes, LinkedIn exports, GitHub repos, portfolio pages,
-        certifications, transcripts, project notes.
-      </p>
+      <h2>Better than a human headhunter</h2>
+      <p>What a great recruiter actually does, and what the skill replaces:</p>
 
-      <div class="vault-diagram big">
-        <div class="vdx-box">RESUMES (PDF, DOCX, MD)</div>
-        <div class="vdx-box">LINKEDIN EXPORT</div>
-        <div class="vdx-box">GITHUB REPOS</div>
-        <div class="vdx-box">PORTFOLIO + BLOG</div>
-        <div class="vdx-box">CERTIFICATIONS</div>
-        <div class="vdx-arrow">&rarr;</div>
-        <div class="vdx-vault">CAREER<br/>EVIDENCE<br/>VAULT</div>
-        <div class="vdx-arrow">&rarr;</div>
-        <div class="vdx-out">
-          <div class="vdx-box">SCORED MATCHES</div>
-          <div class="vdx-box">TAILORED RESUMES</div>
-          <div class="vdx-box">HONEST COVER LETTERS</div>
+      <table class="compare" aria-label="Skill vs alternatives">
+        <thead>
+          <tr>
+            <th>Capability</th>
+            <th>Human headhunter</th>
+            <th>Typical AI resume tool</th>
+            <th>Job Hunt Hacker</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Proactive multi-board search</td>
+            <td class="yes">Yes</td>
+            <td class="no">No</td>
+            <td class="yes">9 boards, parallel</td>
+          </tr>
+          <tr>
+            <td>Matches against verified evidence</td>
+            <td>Partial</td>
+            <td class="no">No (invents)</td>
+            <td class="yes">Vault provenance</td>
+          </tr>
+          <tr>
+            <td>Tailors per opportunity</td>
+            <td class="yes">Yes</td>
+            <td class="yes">Yes</td>
+            <td class="yes">12 styles, honest</td>
+          </tr>
+          <tr>
+            <td>Prepares for interviews</td>
+            <td class="yes">Sometimes</td>
+            <td class="no">No</td>
+            <td class="yes">Library + role-aware</td>
+          </tr>
+          <tr>
+            <td>Negotiates offers</td>
+            <td class="yes">Yes</td>
+            <td class="no">No</td>
+            <td class="yes">Script + market comp</td>
+          </tr>
+          <tr>
+            <td>Knows the salary market</td>
+            <td>Partial</td>
+            <td class="no">No</td>
+            <td class="yes">Local p25/p50/p75/p90</td>
+          </tr>
+          <tr>
+            <td>Drafts followups per stage</td>
+            <td class="yes">Yes</td>
+            <td class="no">No</td>
+            <td class="yes">9 stages</td>
+          </tr>
+          <tr>
+            <td>Networks for referrals</td>
+            <td class="yes">Yes</td>
+            <td class="no">No</td>
+            <td class="yes">Connections + refer-at</td>
+          </tr>
+          <tr>
+            <td>Remembers your history</td>
+            <td>Partial</td>
+            <td class="no">No</td>
+            <td class="yes">Full audit log</td>
+          </tr>
+          <tr>
+            <td>Tracks application velocity</td>
+            <td class="no">No</td>
+            <td class="no">No</td>
+            <td class="yes">Funnel + bottleneck</td>
+          </tr>
+          <tr>
+            <td>Available 24/7</td>
+            <td class="no">No</td>
+            <td class="yes">Yes</td>
+            <td class="yes">Daily cron</td>
+          </tr>
+          <tr>
+            <td>Cost</td>
+            <td>25% of year-1 salary</td>
+            <td>$20–$50/mo subscription</td>
+            <td class="yes">$0</td>
+          </tr>
+          <tr>
+            <td>Owns your data</td>
+            <td class="no">No</td>
+            <td class="no">No</td>
+            <td class="yes">You do</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- ===== 05 / WORKS FOR ANY INDUSTRY ===== -->
+    <section class="block" data-num="05">
+      <h2>Works for any career, not just tech</h2>
+      <p>
+        Most "AI for job search" tools are built by engineers for engineers and
+        quietly assume you're a software engineer too. Job Hunt Hacker classifies
+        roles across <strong>19 discipline families</strong> with real per-family
+        keyword sets sourced from actual job postings:
+      </p>
+      <div class="grid grid-3">
+        <article class="card"><h3>Tech &amp; engineering</h3><p>Software engineering, data, design, security, devops, AI/ML, mobile.</p></article>
+        <article class="card"><h3>Product, marketing, sales</h3><p>Product management, growth marketing, SDR/AE/CSM, content, brand.</p></article>
+        <article class="card"><h3>Legal</h3><p>Attorney, paralegal, counsel, compliance — Westlaw, contracts, NDAs, M&amp;A.</p></article>
+        <article class="card"><h3>Medical</h3><p>RN, MD, NP, PA, pharmacist, therapist — ICD-10, EHR, HIPAA, pre-auth.</p></article>
+        <article class="card"><h3>Finance</h3><p>Analyst, CPA, controller, banker, trader — GAAP, IFRS, FP&amp;A, treasury, KYC.</p></article>
+        <article class="card"><h3>Education</h3><p>Teacher, professor, instructor, principal, tutor — Common Core, LMS, IEP.</p></article>
+        <article class="card"><h3>Creative</h3><p>Photographer, videographer, illustrator, animator, art director — Adobe CC, color, retouching.</p></article>
+        <article class="card"><h3>Hospitality</h3><p>Chef, cook, server, bartender, manager — HACCP, food cost, wine pairing.</p></article>
+        <article class="card"><h3>Trades + science + operations</h3><p>Electrician, plumber, HVAC; scientist, lab tech, postdoc; HR, ops, executive assistant.</p></article>
+      </div>
+    </section>
+
+    <!-- ===== 06 / HONESTY EXAMPLE ===== -->
+    <section class="block" data-num="06">
+      <h2>How tailoring stays honest</h2>
+      <p>
+        Every generated artifact ships with a <strong>provenance map</strong>
+        (each segment cites which EvidenceSource backs it) and an
+        <strong>honesty report</strong> (counts of facts used, keywords added,
+        keywords excluded as unsupported, gaps flagged). What that looks like:
+      </p>
+      <div class="honesty-example">
+        <div class="col col-bad">
+          <span class="col-label">TYPICAL AI RESUME TOOL</span>
+          <span class="bullet">- Led migration of 12-engineer team to microservices, reducing latency 47%.</span>
+          <span class="annotation">
+            You have one resume bullet that says "worked on backend".
+            The AI invented the team size, the architecture decision,
+            and the percentage. Now you have to defend it in the interview.
+          </span>
+        </div>
+        <div class="col col-good">
+          <span class="col-label">JOB HUNT HACKER</span>
+          <span class="bullet">- Backend engineering on the orders service.</span>
+          <span class="annotation">
+            Cites EvidenceSource #14 (your 2023 self-review). The honesty
+            report flags "team size, architecture, latency metric: missing
+            evidence — add or accept the gap."
+          </span>
         </div>
       </div>
-
-      <p>
-        Every claim in the Vault is tagged with confidence, type, and source.
-        You can verify, edit, or disable each one. When the tailoring engine
-        writes a sentence, it stores a provenance map back to the exact Vault
-        claims that justify it. If it can't, the sentence doesn't ship.
+      <p class="muted small">
+        If a posting requires Kubernetes and you have no Kubernetes evidence,
+        the tool refuses to add it. It suggests either uploading a project as
+        new evidence or accepting the gap. You stay credible; the recruiter
+        gets reality.
       </p>
     </section>
 
-    <!-- ===== INSTALL ===== -->
-    <section class="block" id="install" data-num="05">
+    <!-- ===== 07 / INSTALL ===== -->
+    <section class="block" data-num="07" id="install">
       <h2>Five-minute install</h2>
-      <p>You need Python 3.10+ and a terminal. Run these four lines.</p>
+      <p>Requirements: Python 3.10+. macOS or Linux (Windows via WSL).</p>
 
       <div class="terminal" role="img" aria-label="Terminal install commands">
         <div class="terminal-header">
@@ -255,7 +394,7 @@
           <span class="step-text"><strong>Open the UI</strong> at <a href="http://127.0.0.1:8731"><code>http://127.0.0.1:8731</code></a> in any browser on the same machine.</span>
         </li>
         <li class="step">
-          <span class="step-text"><strong>Click AUTOPILOT.</strong> Drop your resume, pick employment type + availability, click START. Walk away.</span>
+          <span class="step-text"><strong>Click AUTOPILOT.</strong> Drop your resume, pick employment + availability, click START. Walk away.</span>
         </li>
         <li class="step">
           <span class="step-text"><strong>Come back to your pipeline.</strong> The skill has found, scored, tailored, and built packets for your top matches.</span>
@@ -263,151 +402,108 @@
       </ol>
 
       <p class="muted small">
-        Optional: add API keys in Settings for richer search (SerpAPI, GitHub)
-        or smarter tailoring (Anthropic, OpenAI, or local Ollama). The tool
-        works fully without any of them.
+        Other install paths: <a href="https://github.com/joseantoniopau/Job-Hunt-Hacker/blob/main/docs/install.md">Docker, docker-compose, single binary</a>.
+        Optional API keys in Settings unlock richer search (SerpApi, GitHub) or
+        smarter tailoring (Anthropic, OpenAI, local Ollama). The tool works
+        fully without any of them.
       </p>
     </section>
 
-    <!-- ===== HONESTY ===== -->
-    <section class="block" data-num="06">
-      <h2>How tailoring stays honest</h2>
-      <p>
-        Every generated artifact comes with two things attached: a
-        <strong>provenance map</strong> and an <strong>honesty report</strong>.
-      </p>
-      <ul class="bullets">
-        <li><strong>Provenance map</strong> — each bullet, paragraph, and skill listed in the output points back to one or more EvidenceSource rows in your Vault. You can audit every claim.</li>
-        <li><strong>Honesty report</strong> — counts of facts used, keywords added, keywords excluded as unsupported, and explicit gaps flagged. No vague "looks good"; gaps are surfaced loudly.</li>
-        <li>If a job posting requires <em>Python</em> and you have no Python evidence, the tool refuses to add it. It suggests either uploading a project as new evidence or leaving it as a gap.</li>
-        <li>You can ask the assistant to be more aggressive about keyword inclusion. It will still refuse to invent dates, employers, titles, certifications, or numbers it cannot trace.</li>
-      </ul>
-
-      <p style="margin-top: 1.5rem;"><strong>What that looks like in practice:</strong></p>
-      <div class="honesty-example">
-        <div class="col col-bad">
-          <span class="col-label">TYPICAL AI RESUME TOOL</span>
-          <span class="bullet">- Led migration of 12-engineer team to microservices, reducing latency 47%.</span>
-          <span class="annotation">
-            You have one resume bullet that says "worked on backend".
-            The AI invented the team size, the architecture decision,
-            and the percentage.
-          </span>
-        </div>
-        <div class="col col-good">
-          <span class="col-label">JOB HUNT HACKER</span>
-          <span class="bullet">- Backend engineering on the orders service.</span>
-          <span class="annotation">
-            Cites EvidenceSource #14 (your 2023 self-review).
-            Honesty report flags "team size, architecture, latency
-            metric: missing evidence — add or accept the gap."
-          </span>
-        </div>
-      </div>
-    </section>
-
-    <!-- ===== COMPLIANCE ===== -->
-    <section class="block" data-num="07">
-      <h2>Compliance &amp; responsibility</h2>
-      <div class="card warn-card">
-        <h3>Scraping risk</h3>
-        <p>
-          We use the JobSpy library to fetch postings from LinkedIn, Indeed,
-          and Glassdoor. These platforms generally prohibit automated scraping
-          in their terms. The tool surfaces each of those sources with a
-          <span class="badge badge-warn">GRAY</span> badge and recommends
-          assisted-apply only.
-        </p>
-        <h3>Auto-apply guardrails</h3>
-        <p>
-          Auto-apply is OFF by default. To enable it you must explicitly
-          acknowledge the risk, set a daily cap, and a minimum score. It is
-          restricted to sources whose own policies permit automation
-          (Greenhouse, Lever, Ashby). LinkedIn, Indeed, and Glassdoor are
-          never auto-applied to.
-        </p>
-        <h3>Kill switch</h3>
-        <p>
-          A single button or <code>POST /api/auto-apply/halt</code> disables
-          everything immediately, including any scheduled runs.
-        </p>
-      </div>
-    </section>
-
-    <!-- ===== FAQ ===== -->
+    <!-- ===== 08 / SECURITY ===== -->
     <section class="block" data-num="08">
+      <h2>Compliance &amp; security</h2>
+      <ul class="bullets">
+        <li><strong>Local-first by default.</strong> No cloud account, no telemetry, no analytics. The vault, uploads, resumes, and packets all live on your laptop.</li>
+        <li><strong>Optional bearer-token auth.</strong> Set <code>JHH_AUTH_TOKEN</code> if you expose the port beyond <code>127.0.0.1</code>. Every <code>/api/*</code> request must then carry the token.</li>
+        <li><strong>Per-IP rate limiting.</strong> Default 10/min on hot endpoints (search, autopilot, tailor, profile/infer). Configurable.</li>
+        <li><strong>SSRF protection.</strong> URL fetchers refuse non-http(s) schemes and any host that resolves to loopback / link-local / private / multicast.</li>
+        <li><strong>Upload caps + MIME validation.</strong> Default 10MB, extension whitelist enforced on every multipart endpoint.</li>
+        <li><strong>Audit log retention.</strong> Daily job purges entries older than 90 days (env-configurable).</li>
+        <li><strong>Pre-wipe snapshot.</strong> Before <code>DELETE /api/data</code> wipes anything, a full export lands in <code>data/snapshots/</code>; last 5 kept.</li>
+        <li><strong>Auto-apply is off by default.</strong> Even when enabled, the skill PREPARES packets and queues them. Submission stays manual. Full threat model in <a href="https://github.com/joseantoniopau/Job-Hunt-Hacker/blob/main/SECURITY.md">SECURITY.md</a>.</li>
+      </ul>
+    </section>
+
+    <!-- ===== 09 / FAQ ===== -->
+    <section class="block" data-num="09">
       <h2>FAQ</h2>
       <div class="faq">
-
         <details>
-          <summary>How much does this cost?</summary>
-          <p>Nothing. It's MIT-licensed and runs on your laptop. If you choose to plug in an Anthropic or OpenAI API key for smarter tailoring, you pay those providers directly. Default mode uses templated fallback that costs zero.</p>
+          <summary>Is this really free?</summary>
+          <p>Yes. MIT license, runs on your laptop, no subscription, no per-seat fee. The only money you might spend is on optional LLM API keys (Anthropic / OpenAI) or SerpApi — and the tool works without any of them.</p>
         </details>
-
         <details>
-          <summary>Is my data private?</summary>
-          <p>Yes. Every byte you upload — resumes, LinkedIn exports, claims, generated drafts — stays in a local SQLite database (<code>data/jhh.db</code>) on your machine. No analytics, no telemetry, no remote logging. The only outbound traffic happens when you explicitly call search adapters or LLM providers you configured yourself.</p>
+          <summary>Will my data leave my computer?</summary>
+          <p>Only if you configure it to. The vault is a local SQLite file. When you set an LLM API key, the contents of your evidence + job posts get sent to that provider as part of normal completion calls (use Ollama for zero cloud egress). Job source adapters make outbound requests to public job boards.</p>
         </details>
-
         <details>
-          <summary>Can I share this with friends?</summary>
-          <p>Yes, please do. It's a public skill under MIT. The whole point is that career-search tooling should not be a paid SaaS. Each person installs their own copy; nobody's data mixes.</p>
+          <summary>Can I share this with a friend who's job hunting?</summary>
+          <p>Please do. The skill is built for individual installation per person. Their vault is their data; sharing the GitHub link is the whole adoption story.</p>
         </details>
-
         <details>
-          <summary>What if I don't have any API keys?</summary>
-          <p>The app runs offline with safe defaults. Templated tailoring still produces honest, evidence-grounded output — it's just less fluent than what a hosted model would generate. You can add keys later in <code>.env</code> and the tool picks them up on next start.</p>
+          <summary>I'm not technical. Can I use this?</summary>
+          <p>If you can copy-paste four lines into Terminal, yes. The Autopilot path is one button after install. We're working on a single-binary release that skips the Python install entirely (<a href="https://github.com/joseantoniopau/Job-Hunt-Hacker/blob/main/scripts/build_binary.sh">scripts/build_binary.sh</a>).</p>
         </details>
-
         <details>
-          <summary>Will this edit or post to my LinkedIn?</summary>
-          <p>No, never. It reads pasted text or an export file. It does not log in, post, message, follow, or modify anything on LinkedIn. The same applies to every other platform.</p>
+          <summary>Does it work for non-tech roles?</summary>
+          <p>Yes. 19 industry families with real keyword sets — legal, medical, finance, education, creative, hospitality, trades, science, sales, marketing, ops, support, and more. The tailoring engine, salary intelligence, and networking layer are all industry-agnostic.</p>
         </details>
-
         <details>
-          <summary>Can multiple people use the same install?</summary>
-          <p>The tool is designed as a personal skill: one local install per person. Two people sharing a Vault would mix their evidence, which would break the honesty guarantee. Each user should clone their own copy.</p>
+          <summary>Will it auto-apply to LinkedIn for me?</summary>
+          <p>No. LinkedIn (and Indeed, Glassdoor) prohibit automation; we respect that. The skill prepares the application packet (tailored resume + cover letter + recruiter message + interview prep) and queues it for your review. You click the actual apply button.</p>
         </details>
-
         <details>
           <summary>How do I back up my data?</summary>
-          <p>Copy the <code>data/</code> and <code>uploads/</code> directories. The Settings page also has a one-click "Export all data" button that bundles your Vault, resumes, and applications into a JSON archive.</p>
+          <p>Settings → EXPORT ALL DATA produces a versioned JSON dump of every table. The wipe endpoint also writes a pre-wipe snapshot automatically; last 5 are kept. To restore: <code>POST /api/data/snapshots/restore</code> with the filename.</p>
         </details>
-
         <details>
           <summary>How do I uninstall?</summary>
-          <p>Stop the server (Ctrl+C in the terminal where <code>./run.sh</code> is running), then delete the <code>Job-Hunt-Hacker</code> directory. There's nothing global to remove. If you symlinked it into <code>~/.claude/skills/</code>, remove that symlink too.</p>
+          <p>Stop the server (Ctrl+C), delete the <code>Job-Hunt-Hacker</code> directory. Nothing global to remove. If you symlinked into <code>~/.claude/skills/</code>, delete that symlink too. Run <code>./install.sh --uninstall</code> for the automated version.</p>
         </details>
-
+        <details>
+          <summary>What's the architecture?</summary>
+          <p>FastAPI backend, SQLite vault, 32 API routers, vanilla brutalist HTML/CSS/JS UI. Optional LLM providers (Anthropic / OpenAI / Ollama / template fallback). Optional Gmail + Google Calendar via OAuth. Background scheduler via APScheduler. Vector retrieval via SQLite + numpy cosine (OpenAI / sentence-transformers / hashing fallback). Read <a href="https://github.com/joseantoniopau/Job-Hunt-Hacker#architecture">the README architecture diagram</a>.</p>
+        </details>
+        <details>
+          <summary>How do I report a bug or contribute?</summary>
+          <p>Open an issue or PR on <a href="https://github.com/joseantoniopau/Job-Hunt-Hacker">GitHub</a>. Keep the brutalist visual discipline, never weaken the no-fabrication guardrails, and document any new dependency.</p>
+        </details>
       </div>
     </section>
 
-    <!-- ===== ROADMAP ===== -->
-    <section class="block" data-num="09">
-      <h2>Roadmap</h2>
+    <!-- ===== 10 / ROADMAP ===== -->
+    <section class="block" data-num="10">
+      <h2>What's shipped</h2>
       <ol class="roadmap">
-        <li><strong>Phase 1 — Vault.</strong> Local evidence ingest from resumes, LinkedIn, GitHub, URLs, free text.</li>
-        <li><strong>Phase 2 — Search.</strong> Multi-source job adapters with dedupe and per-source policies.</li>
-        <li><strong>Phase 3 — Scoring.</strong> Weighted match against vault evidence; gap and contradiction detection.</li>
-        <li><strong>Phase 4 — Tailoring.</strong> Resume + cover letter generation with provenance and honesty reports.</li>
-        <li><strong>Phase 5 — Pipeline.</strong> Kanban tracking, packet building, follow-up reminders.</li>
-        <li><strong>Phase 6 — Inbox &amp; Calendar.</strong> Recruiter email classification, slot suggestion, never auto-send.</li>
-        <li><strong>Phase 7 — Guarded auto-apply.</strong> API-only, opt-in, kill switch, audit log.</li>
+        <li>✓ Phase 1 — scaffold, vault, ingestion, JobSpy + Remote In Tech, basic scoring</li>
+        <li>✓ Phase 2 — LinkedIn / GitHub / portfolio ingestion, keyword matrix, Resume Lab</li>
+        <li>✓ Phase 3 — Resume tailoring (12 styles), cover letters, provenance, honesty reports, exports</li>
+        <li>✓ Phase 4 — Greenhouse, Lever, Ashby, Remotive, WWR, Google Jobs adapters</li>
+        <li>✓ Phase 5 — Scheduler, saved searches, application pipeline, follow-up reminders</li>
+        <li>✓ Phase 6 — Gmail / IMAP / Google Calendar / ICS integrations</li>
+        <li>✓ Phase 7 — Assisted apply, packet builder, auto-prep queue (no auto-submit)</li>
+        <li>✓ <strong>v0.3 — Autopilot, INTEL + NETWORK tabs, salary intel, networking, velocity, gaps, A/B effectiveness, negotiation script, followup orchestration, agnostic industry coverage, observability, security hardening, browser extension scaffold</strong></li>
       </ol>
     </section>
 
   </main>
 
   <footer class="site-footer">
+    <p>JOB&nbsp;HUNT&nbsp;HACKER &middot; v0.3 &middot; MIT licensed &middot; never invents career facts</p>
     <p>
-      <a href="https://github.com/joseantoniopau/Job-Hunt-Hacker">GitHub</a> &middot;
-      MIT licensed &middot; built as a public skill — share freely.
-    </p>
-    <p class="muted small">
-      Sister projects: <a href="https://github.com/joseantoniopau/Hotel-Hacker">Hotel Hacker</a> &middot;
+      <a href="https://github.com/joseantoniopau/Job-Hunt-Hacker">GitHub</a>
+      &middot;
+      <a href="https://github.com/joseantoniopau/Job-Hunt-Hacker/blob/main/SECURITY.md">Security</a>
+      &middot;
+      <a href="https://github.com/joseantoniopau/Job-Hunt-Hacker/blob/main/docs/install.md">Install</a>
+      &middot;
+      <a href="https://github.com/joseantoniopau/Job-Hunt-Hacker/blob/main/README.md">README</a>
+      &middot;
+      Sister projects:
+      <a href="https://github.com/joseantoniopau/Hotel-Hacker">Hotel Hacker</a>
+      &middot;
       <a href="https://github.com/joseantoniopau/Flight-Hacker">Flight Hacker</a>
     </p>
   </footer>
-
 </body>
 </html>
