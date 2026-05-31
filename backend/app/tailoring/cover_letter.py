@@ -34,10 +34,21 @@ def _deterministic_letter(job: dict, claims: list[dict], tone: str) -> dict:
     # them: they don't claim career facts and so don't need evidence_ids.
     intro = {"text": f"Dear Hiring Manager,\n\nI'm writing to express interest in the {role} position at {company}.",
              "evidence_ids": [], "kind": "boilerplate"}
+    # Only sentence-shaped claims become body paragraphs. A bare skill
+    # token like "postgresql" would read as "Dear Hiring Manager …
+    # postgresql." — embarrassing and unsupported as a sentence. Same
+    # honesty rule we apply to recruiter messages.
+    SENTENCE_TYPES = {"role", "accomplishment", "responsibility",
+                      "leadership", "project", "metric", "experience"}
     body_paragraphs: list[dict] = []
-    for c in claims[:3]:
+    for c in claims:
+        if len(body_paragraphs) >= 3:
+            break
         text = (c.get("claim_text") or "").strip()
-        if not text:
+        if not text or len(text.split()) < 4:
+            continue
+        ctype = (c.get("claim_type") or "").lower()
+        if ctype and ctype not in SENTENCE_TYPES:
             continue
         body_paragraphs.append({"text": text, "evidence_ids": [c["id"]],
                                 "kind": "body"})
