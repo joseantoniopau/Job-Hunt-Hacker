@@ -26,7 +26,7 @@
   <!-- ===== HERO ===== -->
   <header class="hero">
     <p class="kicker">A local skill, not a SaaS</p>
-    <h1>JOB&nbsp;HUNT&nbsp;HACKER</h1>
+    <h1 class="hero-title">JOB HUNT HACKER</h1>
     <p class="hero-tagline">
       Find better jobs. Tailor honestly. Apply with discipline.
     </p>
@@ -45,7 +45,28 @@
       <span class="pill pill-warn">Auto-apply OFF by default</span>
       <span class="pill pill-accent">NEW · AUTOPILOT</span>
     </div>
+    <p class="scroll-cue">Scroll to see what it does</p>
   </header>
+
+  <!-- ===== STATS STRIP ===== -->
+  <section class="stats-strip" aria-label="By the numbers">
+    <div class="stat">
+      <span class="stat-num">9</span>
+      <span class="stat-label">Job sources</span>
+    </div>
+    <div class="stat">
+      <span class="stat-num">12</span>
+      <span class="stat-label">Resume styles</span>
+    </div>
+    <div class="stat">
+      <span class="stat-num">0</span>
+      <span class="stat-label">Fabricated facts</span>
+    </div>
+    <div class="stat">
+      <span class="stat-num">$0</span>
+      <span class="stat-label">To run</span>
+    </div>
+  </section>
 
   <!-- ===== AUTOPILOT CALLOUT ===== -->
   <section class="block autopilot-callout">
@@ -75,7 +96,7 @@
   <main>
 
     <!-- ===== WHAT IS IT ===== -->
-    <section class="block">
+    <section class="block" data-num="01">
       <h2>What is Job Hunt Hacker?</h2>
       <p>
         Job Hunt Hacker is a small, local tool that runs on your computer. It
@@ -97,7 +118,7 @@
     </section>
 
     <!-- ===== WHAT IT DOES ===== -->
-    <section class="block">
+    <section class="block" data-num="02">
       <h2>What it does</h2>
       <div class="grid grid-3">
         <article class="card">
@@ -144,7 +165,7 @@
     </section>
 
     <!-- ===== WHAT IT DOES NOT DO ===== -->
-    <section class="block">
+    <section class="block" data-num="03">
       <h2>What it does NOT do</h2>
       <div class="grid grid-2 no-list">
         <article class="card neg">
@@ -175,7 +196,7 @@
     </section>
 
     <!-- ===== VAULT ===== -->
-    <section class="block">
+    <section class="block" data-num="04">
       <h2>The Career Evidence Vault</h2>
       <p>
         The Vault is the heart of the tool. It is a structured store of every
@@ -209,28 +230,44 @@
     </section>
 
     <!-- ===== INSTALL ===== -->
-    <section class="block" id="install">
+    <section class="block" id="install" data-num="05">
       <h2>Five-minute install</h2>
-      <p>You need Python 3.10+ and a terminal. That's it.</p>
-      <pre class="codeblock">git clone https://github.com/joseantoniopau/Job-Hunt-Hacker.git
-cd Job-Hunt-Hacker
-./install.sh
-./run.sh</pre>
-      <p>
-        Open <a href="http://127.0.0.1:8731"><code>http://127.0.0.1:8731</code></a>
-        in your browser. You'll see the brutalist UI; complete SETUP first,
-        upload some evidence in VAULT, then run your first search from
-        DASHBOARD.
-      </p>
+      <p>You need Python 3.10+ and a terminal. Run these four lines.</p>
+
+      <div class="terminal" role="img" aria-label="Terminal install commands">
+        <div class="terminal-header">
+          <span class="terminal-dot r"></span>
+          <span class="terminal-dot y"></span>
+          <span class="terminal-dot g"></span>
+          <span class="terminal-title">install.sh</span>
+        </div>
+        <pre><span class="prompt">$</span> git clone https://github.com/joseantoniopau/Job-Hunt-Hacker.git
+<span class="prompt">$</span> cd Job-Hunt-Hacker
+<span class="prompt">$</span> ./install.sh    <span class="comment"># installs deps, creates DB, links skill</span>
+<span class="prompt">$</span> ./run.sh        <span class="comment"># serves the UI at http://127.0.0.1:8731</span></pre>
+      </div>
+
+      <ol class="steps">
+        <li class="step">
+          <span class="step-text"><strong>Open the UI</strong> at <a href="http://127.0.0.1:8731"><code>http://127.0.0.1:8731</code></a> in any browser on the same machine.</span>
+        </li>
+        <li class="step">
+          <span class="step-text"><strong>Click AUTOPILOT.</strong> Drop your resume, pick employment type + availability, click START. Walk away.</span>
+        </li>
+        <li class="step">
+          <span class="step-text"><strong>Come back to your pipeline.</strong> The skill has found, scored, tailored, and built packets for your top matches.</span>
+        </li>
+      </ol>
+
       <p class="muted small">
-        Optional: add API keys in <code>.env</code> for richer search
-        (SerpAPI, GitHub) or smarter tailoring (Anthropic, OpenAI, or local
-        Ollama). The tool works without any of them.
+        Optional: add API keys in Settings for richer search (SerpAPI, GitHub)
+        or smarter tailoring (Anthropic, OpenAI, or local Ollama). The tool
+        works fully without any of them.
       </p>
     </section>
 
     <!-- ===== HONESTY ===== -->
-    <section class="block">
+    <section class="block" data-num="06">
       <h2>How tailoring stays honest</h2>
       <p>
         Every generated artifact comes with two things attached: a
@@ -242,10 +279,32 @@ cd Job-Hunt-Hacker
         <li>If a job posting requires <em>Python</em> and you have no Python evidence, the tool refuses to add it. It suggests either uploading a project as new evidence or leaving it as a gap.</li>
         <li>You can ask the assistant to be more aggressive about keyword inclusion. It will still refuse to invent dates, employers, titles, certifications, or numbers it cannot trace.</li>
       </ul>
+
+      <p style="margin-top: 1.5rem;"><strong>What that looks like in practice:</strong></p>
+      <div class="honesty-example">
+        <div class="col col-bad">
+          <span class="col-label">TYPICAL AI RESUME TOOL</span>
+          <span class="bullet">- Led migration of 12-engineer team to microservices, reducing latency 47%.</span>
+          <span class="annotation">
+            You have one resume bullet that says "worked on backend".
+            The AI invented the team size, the architecture decision,
+            and the percentage.
+          </span>
+        </div>
+        <div class="col col-good">
+          <span class="col-label">JOB HUNT HACKER</span>
+          <span class="bullet">- Backend engineering on the orders service.</span>
+          <span class="annotation">
+            Cites EvidenceSource #14 (your 2023 self-review).
+            Honesty report flags "team size, architecture, latency
+            metric: missing evidence — add or accept the gap."
+          </span>
+        </div>
+      </div>
     </section>
 
     <!-- ===== COMPLIANCE ===== -->
-    <section class="block">
+    <section class="block" data-num="07">
       <h2>Compliance &amp; responsibility</h2>
       <div class="card warn-card">
         <h3>Scraping risk</h3>
@@ -273,7 +332,7 @@ cd Job-Hunt-Hacker
     </section>
 
     <!-- ===== FAQ ===== -->
-    <section class="block">
+    <section class="block" data-num="08">
       <h2>FAQ</h2>
       <div class="faq">
 
@@ -321,7 +380,7 @@ cd Job-Hunt-Hacker
     </section>
 
     <!-- ===== ROADMAP ===== -->
-    <section class="block">
+    <section class="block" data-num="09">
       <h2>Roadmap</h2>
       <ol class="roadmap">
         <li><strong>Phase 1 — Vault.</strong> Local evidence ingest from resumes, LinkedIn, GitHub, URLs, free text.</li>

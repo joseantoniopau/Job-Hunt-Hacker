@@ -47,3 +47,4 @@ build/
 # node (in case anyone tries)
 node_modules/
 data/calendar_ics/
+data/jhh.db.bak
