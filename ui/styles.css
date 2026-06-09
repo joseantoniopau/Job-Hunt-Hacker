@@ -1711,18 +1711,60 @@ label[data-required]::after {
   margin: auto;
   animation: modal-pop 200ms var(--ease) both;
 }
-/* Autopilot modal has many fields — give it a wider max + tighter top
-   margin so the START button is always reachable without horizontal scroll. */
-#autopilot-modal .modal-card {
+/* Wider modals for content-heavy popups so the bottom buttons stay
+   reachable without needing horizontal scroll. Both the Autopilot
+   setup form and the generic text-modal (resume preview, interview
+   prep, cover-letter draft, recruiter messages, packet manifest,
+   email draft replies) benefit from extra horizontal room. */
+#autopilot-modal .modal-card,
+#card-modal .modal-card {
   max-width: 720px;
   margin-top: var(--s-4);
   margin-bottom: var(--s-4);
 }
-/* Phone: shrink padding so more of the form fits on screen */
+
+/* Inside content (textarea, lists) gets a cap of 50vh so it doesn't
+   push the action buttons off-screen on tall content. The modal-card
+   itself can still scroll the rest. */
+.modal-card textarea,
+.modal-card pre,
+.modal-card .codeblock,
+.modal-card ul,
+.modal-card ol {
+  max-height: min(50vh, 480px);
+  overflow-y: auto;
+}
+
+/* Action row inside a modal sticks to the bottom of the card. The
+   `position: sticky` keeps it visible even when content scrolls inside
+   the card. Both .form-actions (general) and #card-save-btn parent
+   (specific) get the treatment. */
+.modal-card .form-actions {
+  position: sticky;
+  bottom: calc(-1 * var(--s-5));
+  background: var(--card);
+  margin: var(--s-4) calc(-1 * var(--s-5)) calc(-1 * var(--s-5));
+  padding: var(--s-3) var(--s-5);
+  border-top: var(--border-thin);
+  z-index: 1;
+}
+
+/* Phone: tighter padding so more of the form fits on screen */
 @media (max-width: 600px) {
   .modal { padding: var(--s-3); }
   .modal-card { padding: var(--s-4); }
-  #autopilot-modal .modal-card { padding: var(--s-3); }
+  #autopilot-modal .modal-card,
+  #card-modal .modal-card { padding: var(--s-3); }
+  .modal-card .form-actions {
+    bottom: calc(-1 * var(--s-4));
+    margin: var(--s-3) calc(-1 * var(--s-4)) calc(-1 * var(--s-4));
+    padding: var(--s-3) var(--s-4);
+  }
+  .modal-card textarea,
+  .modal-card pre,
+  .modal-card .codeblock,
+  .modal-card ul,
+  .modal-card ol { max-height: 40vh; }
 }
 @keyframes modal-pop {
   from { transform: translateY(8px) scale(0.98); }
