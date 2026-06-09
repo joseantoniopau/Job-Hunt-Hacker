@@ -2909,3 +2909,115 @@ form.autopilot-running .form-actions {
   padding: 0;
   text-decoration: underline;
 }
+
+/* ====== CAREER SNAPSHOT + BASE RESUME (landing page) ====== */
+.career-snapshot-card, .base-resume-card { margin-top: var(--s-4); }
+.snapshot-empty, .base-resume-empty { padding: var(--s-3) 0; }
+.snapshot-header h4 {
+  margin: 0;
+  font-family: var(--mono);
+  letter-spacing: 0.06em;
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  flex-wrap: wrap;
+}
+.snapshot-narrative {
+  margin: var(--s-3) 0;
+  padding: var(--s-3);
+  border-left: 4px solid var(--accent);
+  background: var(--card-2);
+}
+.snapshot-section {
+  margin: var(--s-3) 0;
+  padding: var(--s-2) 0;
+  border-top: 1px dashed var(--hair-strong);
+}
+.snapshot-section summary {
+  cursor: pointer;
+  font-family: var(--mono);
+  letter-spacing: 0.06em;
+  padding: var(--s-1) 0;
+}
+.snapshot-section ul.snapshot-list {
+  padding-left: var(--s-5);
+  margin: var(--s-2) 0;
+}
+.snapshot-section ul.snapshot-list li {
+  margin-bottom: var(--s-3);
+}
+.snapshot-strengths {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+  margin-top: var(--s-2);
+}
+.career-stage-pill {
+  display: inline-block;
+  padding: 2px 8px;
+  font-family: var(--mono);
+  font-size: var(--fs-micro);
+  letter-spacing: 0.08em;
+  border: 1px solid var(--hair-strong);
+}
+.stage-early    { background: var(--card-2); }
+.stage-mid      { background: var(--card-2); border-color: var(--cobalt, var(--accent)); color: var(--cobalt, var(--accent)); }
+.stage-senior   { background: var(--positive-soft); border-color: var(--positive); color: var(--positive); }
+.stage-staff,
+.stage-principal,
+.stage-exec     { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+.stage-unclear  { background: var(--card-2); color: var(--muted); }
+
+.base-resume-md {
+  background: var(--bg);
+  border: var(--border-thin);
+  padding: var(--s-4);
+  font-family: var(--serif);
+  line-height: 1.55;
+  max-height: 60vh;
+  overflow-y: auto;
+}
+.base-resume-md h2 {
+  margin: 0 0 var(--s-2);
+  font-family: var(--serif);
+}
+.base-resume-md h3 {
+  margin: var(--s-4) 0 var(--s-2);
+  font-family: var(--mono);
+  letter-spacing: 0.08em;
+  border-bottom: 2px solid var(--ink);
+  padding-bottom: 2px;
+}
+.base-resume-md h4 {
+  margin: var(--s-3) 0 var(--s-1);
+  font-family: var(--mono);
+}
+.base-resume-md ul {
+  padding-left: var(--s-5);
+}
+.base-resume-md em {
+  color: var(--muted);
+  font-size: var(--fs-micro);
+}
+.base-resume-actions {
+  display: flex;
+  gap: var(--s-2);
+  margin-bottom: var(--s-2);
+}
+
+/* ====== DELETE CONFIRM MODAL ====== */
+.confirm-delete-card {
+  max-width: 480px;
+  border-top: 4px solid var(--accent);
+}
+
+/* ====== DASHBOARD selection + dismiss/save UI ====== */
+#jobs-select-all { cursor: pointer; }
+.job-row-check { cursor: pointer; }
+.row-action-dismiss {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.row-action-dismiss:hover {
+  background: var(--accent-soft);
+}

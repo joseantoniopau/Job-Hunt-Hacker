@@ -91,6 +91,128 @@ def delete_endpoint(job_id: int) -> dict:
     return {"ok": True, "detail": "archived"}
 
 
+class BulkStatusRequest(BaseModel):
+    job_ids: list[int]
+    status: str
+
+
+@router.post("/bulk-status")
+def bulk_status(body: BulkStatusRequest) -> dict:
+    """Move a batch of jobs to a status (typically 'dismissed' or 'saved').
+
+    Used by the Dashboard highlight flow: user selects N rows and clicks
+    DISMISS SELECTED or SAVE SELECTED.
+    """
+    ok, errors = [], {}
+    for jid in body.job_ids:
+        if update_status(int(jid), body.status):
+            ok.append(int(jid))
+        else:
+            errors[int(jid)] = "not found"
+    return {"ok": True, "data": {"updated": ok, "errors": errors,
+                                 "status": body.status}}
+
+
+@router.post("/refresh")
+async def refresh_jobs(top_n: int = 25, hours_old: int = 168) -> dict:
+    """Re-run the user's saved-search query but EXCLUDE jobs the user has
+    already dismissed. Used by the Dashboard REFRESH button.
+
+    The exclusion works at persist time: any record whose apply_url or
+    (source, external_id) tuple matches a dismissed job_posting row is
+    skipped during insert. Dismissed rows themselves are not re-fetched.
+    """
+    from ..db import get_conn, row_to_dict
+    from ..services.job_sources import REGISTRY
+    from ..services.job_sources.pipeline import search_all, persist
+    from ..services.job_sources.base import JobSearchQuery
+
+    conn = get_conn()
+    prof_row = conn.execute(
+        "SELECT target_titles, target_keywords, preferred_locations, location FROM user_profile WHERE id=1"
+    ).fetchone()
+    prof = row_to_dict(prof_row) or {}
+    import json as _json
+    try:
+        targets = _json.loads(prof.get("target_titles") or "[]")
+    except Exception:
+        targets = []
+    try:
+        keywords = _json.loads(prof.get("target_keywords") or "[]")
+    except Exception:
+        keywords = []
+    locations_pref = ""
+    try:
+        prefs = _json.loads(prof.get("preferred_locations") or "[]")
+        if prefs:
+            locations_pref = prefs[0]
+    except Exception:
+        pass
+
+    queries = [t for t in (targets or []) if t][:3]
+    if not queries and keywords:
+        queries = [" ".join(keywords[:3])]
+    if not queries:
+        queries = ["engineer"]
+
+    # Pre-build dismissed exclusion set (composite key sources used at persist)
+    dismissed_rows = conn.execute(
+        "SELECT source, external_id, apply_url FROM job_posting WHERE status = 'dismissed'"
+    ).fetchall()
+    dismissed_keys = set()
+    dismissed_urls = set()
+    for r in dismissed_rows:
+        if r["external_id"]:
+            dismissed_keys.add((r["source"], r["external_id"]))
+        if r["apply_url"]:
+            dismissed_urls.add(r["apply_url"])
+
+    sites = list(REGISTRY.keys())
+    merged: list[dict] = []
+    seen: set = set()
+    per_source_agg: dict = {}
+    errors_agg: dict = {}
+    excluded = 0
+    per_q = max(5, int(top_n) // max(1, len(queries)))
+    for q in queries:
+        sr = search_all(
+            JobSearchQuery(
+                query=q,
+                location=locations_pref or None,
+                is_remote=not bool(locations_pref),
+                results_per_site=per_q,
+                hours_old=int(hours_old),
+            ),
+            sites=sites,
+        )
+        for rec in sr.get("records") or []:
+            src = rec.get("source")
+            ext = rec.get("external_id")
+            url = rec.get("apply_url") or rec.get("url")
+            if (src, ext) in dismissed_keys or (url and url in dismissed_urls):
+                excluded += 1
+                continue
+            key = (src, ext or url)
+            if key in seen:
+                continue
+            seen.add(key)
+            merged.append(rec)
+        for k, v in (sr.get("per_source") or {}).items():
+            per_source_agg[k] = per_source_agg.get(k, 0) + int(v or 0)
+        for k, v in (sr.get("errors") or {}).items():
+            errors_agg.setdefault(k, str(v))
+
+    pr = persist(merged)
+    return {"ok": True, "data": {
+        "queries": queries,
+        "discovered": len(merged),
+        "inserted": int(pr.get("inserted", 0)),
+        "excluded_dismissed": excluded,
+        "per_source": per_source_agg,
+        "errors": errors_agg,
+    }}
+
+
 @router.post("/rescore")
 def rescore(body: RescoreRequest) -> dict:
     scored: list[int] = []

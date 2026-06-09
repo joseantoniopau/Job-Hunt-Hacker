@@ -54,6 +54,7 @@
     put(p, b, opts)     { return this._req('PUT', p, b, opts); },
     patch(p, b, opts)   { return this._req('PATCH', p, b, opts); },
     del(p, opts)        { return this._req('DELETE', p, undefined, opts); },
+    delete(p, opts)     { return this._req('DELETE', p, undefined, opts); },
   };
 
   // ----- toasts -----
@@ -1104,7 +1105,7 @@
         `${jobs.length} stored · ${llmCount} LLM-scored`;
     }
     if (!jobs.length) {
-      body.appendChild(el('tr', {}, el('td', { colspan: 12, class: 'empty', text: 'No jobs yet — run a search.' })));
+      body.appendChild(el('tr', {}, el('td', { colspan: 13, class: 'empty', text: 'No jobs yet — run a search.' })));
       return;
     }
     const mode = getSortMode();
@@ -1125,10 +1126,14 @@
       const score = j.score ?? null;
       const llmRow = llmScores[j.id];
       const tr = el('tr', { class: 'clickable', 'data-job-id': j.id, onclick: (e) => {
-        // Don't open the detail panel when the user clicks a row button.
+        // Don't open the detail panel when the user clicks a row button or checkbox.
         if (e.target.closest('.row-action-btn')) return;
+        if (e.target.matches('input[type="checkbox"]')) return;
         openJobDetail(j);
       } }, [
+        el('td', {}, el('input', { type: 'checkbox', class: 'job-row-check',
+          'data-job-id': j.id,
+          onchange: refreshJobsSelectionUI })),
         el('td', { text: String(i + 1) }),
         el('td', { text: safeText(j.title || '—') }),
         el('td', { text: safeText(j.company || '—') }),
@@ -1189,7 +1194,117 @@
       },
     });
     wrap.appendChild(rescoreBtn);
+    // SAVE — move into pipeline as a saved application
+    const saveBtn = el('button', {
+      type: 'button', class: 'row-action-btn', title: 'Save to pipeline',
+      text: 'SAVE',
+      onclick: async (e) => {
+        e.stopPropagation();
+        await saveJobToPipeline(j, saveBtn);
+      },
+    });
+    wrap.appendChild(saveBtn);
+    // DISMISS — mark dismissed so REFRESH excludes it
+    const dismissBtn = el('button', {
+      type: 'button', class: 'row-action-btn row-action-dismiss',
+      title: 'Dismiss this job — it will be excluded from future REFRESH calls',
+      text: 'DISMISS',
+      onclick: async (e) => {
+        e.stopPropagation();
+        await dismissJobInline(j, dismissBtn);
+      },
+    });
+    wrap.appendChild(dismissBtn);
     return wrap;
+  }
+
+  // ----- Dashboard selection + bulk + per-row actions -----
+  function selectedJobIds() {
+    return $$('.job-row-check').filter(c => c.checked).map(c => Number(c.getAttribute('data-job-id')));
+  }
+  function refreshJobsSelectionUI() {
+    const n = selectedJobIds().length;
+    const dismissBtn = $('#jobs-dismiss-selected');
+    const saveBtn = $('#jobs-save-selected');
+    if (dismissBtn) dismissBtn.classList.toggle('hidden', n === 0);
+    if (saveBtn) saveBtn.classList.toggle('hidden', n === 0);
+    if (dismissBtn) dismissBtn.textContent = `DISMISS SELECTED (${n})`;
+    if (saveBtn) saveBtn.textContent = `SAVE SELECTED (${n})`;
+  }
+
+  async function dismissJobInline(j, btn) {
+    btn.disabled = true; btn.textContent = '…';
+    const r = await api.patch('/api/jobs/' + j.id + '/status', { status: 'dismissed' });
+    btn.disabled = false; btn.textContent = 'DISMISS';
+    if (r.ok) {
+      toast(`Dismissed "${j.title || j.id}". REFRESH will exclude it.`, 'success');
+      await loadJobs();
+    }
+  }
+
+  async function saveJobToPipeline(j, btn) {
+    btn.disabled = true; btn.textContent = '…';
+    const r = await api.post('/api/applications', { job_id: j.id, status: 'saved' });
+    btn.disabled = false; btn.textContent = 'SAVE';
+    if (r.ok) toast(`Saved "${j.title || j.id}" to Pipeline.`, 'success');
+  }
+
+  async function bulkDismissSelected() {
+    const ids = selectedJobIds();
+    if (!ids.length) return;
+    if (!confirm(`Dismiss ${ids.length} job(s)? They will be excluded from future REFRESH calls.`)) return;
+    const r = await api.post('/api/jobs/bulk-status', { job_ids: ids, status: 'dismissed' });
+    if (r.ok) {
+      toast(`Dismissed ${r.data.updated.length}.`, 'success');
+      await loadJobs();
+      refreshJobsSelectionUI();
+    }
+  }
+  async function bulkSaveSelected() {
+    const ids = selectedJobIds();
+    if (!ids.length) return;
+    let saved = 0;
+    for (const id of ids) {
+      const j = (state.jobs || []).find(x => x.id === id);
+      if (!j) continue;
+      const r = await api.post('/api/applications', { job_id: id, status: 'saved' }, { silent: true });
+      if (r.ok) saved++;
+    }
+    toast(`Saved ${saved} of ${ids.length} to Pipeline.`, 'success');
+    refreshJobsSelectionUI();
+  }
+
+  async function refreshJobsFromSources() {
+    const btn = $('#jobs-refresh-btn');
+    const status = $('#jobs-refresh-status');
+    btn.disabled = true; btn.textContent = 'REFRESHING…';
+    if (status) status.textContent = 'searching boards (1–3 min)…';
+    const r = await api.post('/api/jobs/refresh', {});
+    btn.disabled = false; btn.textContent = 'REFRESH JOBS';
+    if (r.ok) {
+      const d = r.data || {};
+      const msg = `+${d.inserted || 0} new · ${d.excluded_dismissed || 0} excluded (dismissed) · ${d.discovered || 0} discovered`;
+      if (status) status.textContent = msg;
+      toast(msg, 'success');
+      await loadJobs();
+    } else {
+      if (status) status.textContent = 'failed: ' + (r.error || 'unknown');
+    }
+  }
+
+  function bindDashboardSelection() {
+    const all = $('#jobs-select-all');
+    if (all) all.addEventListener('change', () => {
+      const v = all.checked;
+      $$('.job-row-check').forEach(c => { c.checked = v; });
+      refreshJobsSelectionUI();
+    });
+    const dismissBtn = $('#jobs-dismiss-selected');
+    if (dismissBtn) dismissBtn.addEventListener('click', bulkDismissSelected);
+    const saveBtn = $('#jobs-save-selected');
+    if (saveBtn) saveBtn.addEventListener('click', bulkSaveSelected);
+    const refreshBtn = $('#jobs-refresh-btn');
+    if (refreshBtn) refreshBtn.addEventListener('click', refreshJobsFromSources);
   }
 
   function updateSortToggleUI() {
@@ -1681,6 +1796,11 @@
   // PIPELINE
   // ============================================================
   const PIPELINE_STATUSES = ['saved','prepared','applied','replied','interview','offer','rejected'];
+
+  // Track whether the most recent drop landed inside a column. The window-level
+  // drop handler reads this to decide whether to treat a drop as a delete.
+  const _kanbanDragState = { lastDropOnColumn: false };
+
   function bindPipelineBoard() {
     const kb = $('#kanban');
     kb.innerHTML = '';
@@ -1696,13 +1816,78 @@
       col.addEventListener('dragleave', () => col.classList.remove('drag-over'));
       col.addEventListener('drop', async (e) => {
         e.preventDefault();
+        e.stopPropagation();
         col.classList.remove('drag-over');
+        _kanbanDragState.lastDropOnColumn = true;
         const id = e.dataTransfer.getData('text/plain');
         if (!id) return;
         const r = await api.patch('/api/applications/' + id, { status });
         if (r.ok) { toast('Status: ' + status, 'success'); loadPipeline(); }
       });
       kb.appendChild(col);
+    }
+
+    // Window-level drag handlers — fired when the user drops a kanban card
+    // OUTSIDE any column. We confirm + delete instead of silently snapping
+    // the card back. Bound once; re-binding bindPipelineBoard is a no-op.
+    if (!window._jhhKanbanDeleteBound) {
+      window._jhhKanbanDeleteBound = true;
+      // dragover anywhere must call preventDefault for drop to fire at all
+      window.addEventListener('dragover', (e) => {
+        if (e.dataTransfer && Array.from(e.dataTransfer.types || []).includes('text/plain')) {
+          e.preventDefault();
+        }
+      });
+      window.addEventListener('dragstart', () => { _kanbanDragState.lastDropOnColumn = false; });
+      window.addEventListener('drop', async (e) => {
+        // Only handle drops outside a column. The column handler set the flag
+        // (and stopped propagation) for valid drops.
+        if (_kanbanDragState.lastDropOnColumn) return;
+        const id = e.dataTransfer && e.dataTransfer.getData('text/plain');
+        if (!id) return;
+        const app = (state.applications || []).find(a => String(a.id) === String(id));
+        if (!app) return;
+        e.preventDefault();
+        confirmDeleteApplication(app);
+      });
+    }
+  }
+
+  // Reusable yes/no delete confirm modal — works for kanban drag-out AND
+  // any other place that wants a destructive confirmation.
+  function confirmDeleteApplication(app) {
+    const m = $('#confirm-delete-modal');
+    if (!m) {
+      // Modal node missing — fall back to native confirm to avoid silent failure
+      if (confirm(`Delete application "${app.title || 'app#' + app.id}" at ${app.company || ''}? This cannot be undone.`)) {
+        deleteApplication(app.id);
+      }
+      return;
+    }
+    $('#confirm-delete-title').textContent = `Delete "${app.title || 'application #' + app.id}"?`;
+    $('#confirm-delete-detail').textContent =
+      `${app.company || 'No company'} · status: ${app.status || '—'}. ` +
+      `This removes the application from your pipeline. The underlying job posting stays in the Dashboard.`;
+    m.classList.remove('hidden');
+    const yes = $('#confirm-delete-yes');
+    const no = $('#confirm-delete-no');
+    const close = () => m.classList.add('hidden');
+    yes.onclick = async () => {
+      yes.disabled = true; yes.textContent = 'DELETING…';
+      await deleteApplication(app.id);
+      yes.disabled = false; yes.textContent = 'DELETE';
+      close();
+    };
+    no.onclick = close;
+    m.onclick = (e) => { if (e.target === m) close(); };
+  }
+  async function deleteApplication(appId) {
+    const r = await api.delete('/api/applications/' + appId);
+    if (r.ok) {
+      toast('Application deleted.', 'success');
+      loadPipeline();
+    } else {
+      toast('Delete failed: ' + (r.error || 'unknown'), 'error');
     }
   }
   async function loadPipeline() {
@@ -3158,6 +3343,9 @@
     bindInterview();
     bindSettings();
     bindProfileProposalGate();
+    bindCareerSnapshot();
+    bindBaseResume();
+    bindDashboardSelection();
     refreshWeightTotal();
     bootStatus();
     bindLLMActivity();
@@ -4713,7 +4901,221 @@
     });
   }
 
+  // ============================================================
+  // CAREER SNAPSHOT — landing-page LLM narrative
+  // ============================================================
+  function bindCareerSnapshot() {
+    const card = document.getElementById('career-snapshot-card');
+    if (!card) return;
+    const genBtn = document.getElementById('snapshot-generate-btn');
+    const viewBtn = document.getElementById('snapshot-view-reasoning-btn');
+    if (genBtn) genBtn.addEventListener('click', generateCareerSnapshot);
+    if (viewBtn) viewBtn.addEventListener('click', () => {
+      const rid = viewBtn.getAttribute('data-run-id');
+      if (rid) openLLMRunModal(Number(rid));
+    });
+    loadCareerSnapshot();
+  }
 
+  async function loadCareerSnapshot() {
+    const r = await api.get('/api/profile/snapshot', { silent: true });
+    if (r.ok && r.data) renderCareerSnapshot(r.data);
+  }
+
+  async function generateCareerSnapshot() {
+    const btn = document.getElementById('snapshot-generate-btn');
+    btn.disabled = true; btn.textContent = 'GENERATING (1–3 min)…';
+    const r = await api.post('/api/profile/snapshot', {});
+    btn.disabled = false; btn.textContent = 'REGENERATE SNAPSHOT';
+    if (!r.ok) {
+      toast('Snapshot failed: ' + (r.error || r.detail || 'unknown'), 'error');
+      return;
+    }
+    renderCareerSnapshot(r.data);
+    toast(`Snapshot ready (${r.data.generated_by || 'llm'})`, 'success');
+  }
+
+  function renderCareerSnapshot(snap) {
+    const body = document.getElementById('snapshot-body');
+    const empty = document.getElementById('snapshot-empty');
+    const viewBtn = document.getElementById('snapshot-view-reasoning-btn');
+    const genBtn = document.getElementById('snapshot-generate-btn');
+    if (!body) return;
+    if (genBtn) genBtn.textContent = 'REGENERATE SNAPSHOT';
+    if (empty) empty.classList.add('hidden');
+    body.classList.remove('hidden');
+    const esc = (s) => (s || '').toString().replace(/&/g,'&amp;').replace(/</g,'&lt;');
+    const basic = snap.basic_info || {};
+    const stagePill = `<span class="career-stage-pill stage-${esc(snap.career_stage || 'unclear')}">${esc((snap.career_stage || 'unclear').toUpperCase())}</span>`;
+    const recs = (snap.job_recommendations || []).map((rec, i) => `
+      <li>
+        <strong>${esc(rec.title)}</strong>
+        ${rec.keywords && rec.keywords.length ? `<span class="muted small">— ${esc(rec.keywords.join(', '))}</span>` : ''}
+        <div class="muted small">${esc(rec.rationale || '')}</div>
+        <button type="button" class="btn btn-ghost small" data-snap-search="${esc(rec.title)}">SEARCH JOBS FOR THIS →</button>
+      </li>`).join('');
+    const nextSteps = (snap.next_steps || []).map(ns => `
+      <li><strong>${esc(ns.move)}</strong>
+          <div class="muted small">${esc(ns.rationale || '')}</div></li>`).join('');
+    const strengths = (snap.strengths || []).map(s => `<span class="ap-kpi" style="font-size:var(--fs-micro);">${esc(s)}</span>`).join(' ');
+
+    body.innerHTML = `
+      <div class="snapshot-header">
+        <h4>${esc(basic.name || 'You')} ${stagePill}</h4>
+        <p class="muted small">${esc(basic.current_role || '')}${basic.location ? ' · ' + esc(basic.location) : ''}</p>
+      </div>
+      <p class="snapshot-narrative">${esc(snap.narrative || '')}</p>
+      <details class="snapshot-section" open>
+        <summary><strong>WHAT YOU DO</strong></summary>
+        <p>${esc(snap.what_they_do || '')}</p>
+      </details>
+      <details class="snapshot-section">
+        <summary><strong>CAREER STAGE</strong> ${stagePill}</summary>
+        <p>${esc(snap.career_stage_reasoning || '')}</p>
+      </details>
+      ${strengths ? `<details class="snapshot-section" open>
+        <summary><strong>STRENGTHS</strong></summary>
+        <div class="snapshot-strengths">${strengths}</div>
+      </details>` : ''}
+      ${nextSteps ? `<details class="snapshot-section" open>
+        <summary><strong>NEXT CAREER MOVES</strong></summary>
+        <ul class="snapshot-list">${nextSteps}</ul>
+      </details>` : ''}
+      ${recs ? `<details class="snapshot-section" open>
+        <summary><strong>JOB RECOMMENDATIONS</strong></summary>
+        <ul class="snapshot-list">${recs}</ul>
+        <p class="muted small">Click a recommendation to search jobs for it — results land in the DASHBOARD where you can save or dismiss them.</p>
+      </details>` : ''}`;
+    // Wire job-recommendation search buttons
+    body.querySelectorAll('[data-snap-search]').forEach(b => {
+      b.addEventListener('click', async () => {
+        const q = b.getAttribute('data-snap-search');
+        if (!q) return;
+        b.disabled = true; b.textContent = 'SEARCHING…';
+        const r = await api.post('/api/search', { query: q, limit: 25 });
+        b.disabled = false; b.textContent = 'SEARCH JOBS FOR THIS →';
+        if (r.ok) {
+          toast(`Found ${r.data?.discovered || 0} jobs for "${q}". Opening Dashboard.`, 'success');
+          switchPage('dashboard');
+        }
+      });
+    });
+    if (viewBtn) {
+      if (snap.llm_run_id) {
+        viewBtn.classList.remove('hidden');
+        viewBtn.setAttribute('data-run-id', String(snap.llm_run_id));
+      } else {
+        viewBtn.classList.add('hidden');
+      }
+    }
+  }
+
+  // ============================================================
+  // BASE RESUME — landing-page view
+  // ============================================================
+  function bindBaseResume() {
+    const card = document.getElementById('base-resume-card');
+    if (!card) return;
+    const genBtn = document.getElementById('base-resume-generate-btn');
+    const viewBtn = document.getElementById('base-resume-view-reasoning-btn');
+    if (genBtn) genBtn.addEventListener('click', generateBaseResume);
+    if (viewBtn) viewBtn.addEventListener('click', () => {
+      const rid = viewBtn.getAttribute('data-run-id');
+      if (rid) openLLMRunModal(Number(rid));
+    });
+    loadBaseResume();
+  }
+  async function loadBaseResume() {
+    const r = await api.get('/api/resume/base', { silent: true });
+    if (r.ok && r.data) renderBaseResume(r.data);
+  }
+  async function generateBaseResume() {
+    const btn = document.getElementById('base-resume-generate-btn');
+    btn.disabled = true; btn.textContent = 'BUILDING (2–6 min)…';
+    const r = await api.post('/api/resume/base/generate', {});
+    btn.disabled = false; btn.textContent = 'REGENERATE BASE RESUME';
+    if (!r.ok) {
+      toast('Base resume failed: ' + (r.error || r.detail || 'unknown'), 'error');
+      return;
+    }
+    renderBaseResume(r.data);
+    toast(`Base resume ready (${r.data.generated_by || 'llm'})`, 'success');
+  }
+  function renderBaseResume(data) {
+    const body = document.getElementById('base-resume-body');
+    const empty = document.getElementById('base-resume-empty');
+    const viewBtn = document.getElementById('base-resume-view-reasoning-btn');
+    const genBtn = document.getElementById('base-resume-generate-btn');
+    if (!body) return;
+    if (genBtn) genBtn.textContent = 'REGENERATE BASE RESUME';
+    if (empty) empty.classList.add('hidden');
+    body.classList.remove('hidden');
+    const md = data.markdown || '';
+    // Render markdown minimally — bold + headings + bullets. We keep it
+    // small so the user sees a clean preview without a full md parser.
+    const html = renderSimpleMarkdown(md);
+    const notes = (data.honesty_notes || []).map(n => `<li>${escapeHtml(n)}</li>`).join('');
+    body.innerHTML = `
+      <div class="base-resume-actions">
+        <button class="btn btn-ghost small" type="button" id="base-resume-copy">COPY MARKDOWN</button>
+      </div>
+      <article class="base-resume-md">${html}</article>
+      ${notes ? `<details class="snapshot-section" open>
+        <summary><strong>HONESTY NOTES</strong></summary>
+        <ul>${notes}</ul></details>` : ''}
+    `;
+    const copyBtn = document.getElementById('base-resume-copy');
+    if (copyBtn) copyBtn.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(md);
+        toast('Markdown copied.', 'success');
+      } catch (e) {
+        toast('Copy failed: ' + e.message, 'error');
+      }
+    });
+    if (viewBtn) {
+      if (data.llm_run_id) {
+        viewBtn.classList.remove('hidden');
+        viewBtn.setAttribute('data-run-id', String(data.llm_run_id));
+      } else {
+        viewBtn.classList.add('hidden');
+      }
+    }
+  }
+
+  function escapeHtml(s) {
+    return (s || '').toString().replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+  function renderSimpleMarkdown(md) {
+    if (!md) return '';
+    const lines = md.split('\n');
+    const out = [];
+    let inList = false;
+    const closeList = () => { if (inList) { out.push('</ul>'); inList = false; } };
+    for (const raw of lines) {
+      const line = raw.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      let m;
+      if ((m = line.match(/^# (.+)$/))) { closeList(); out.push(`<h2>${m[1]}</h2>`); continue; }
+      if ((m = line.match(/^## (.+)$/))) { closeList(); out.push(`<h3>${m[1]}</h3>`); continue; }
+      if ((m = line.match(/^### (.+)$/))) { closeList(); out.push(`<h4>${m[1]}</h4>`); continue; }
+      if ((m = line.match(/^- (.+)$/))) {
+        if (!inList) { out.push('<ul>'); inList = true; }
+        let content = m[1];
+        content = content.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+        content = content.replace(/_([^_]+)_/g, '<em>$1</em>');
+        out.push(`<li>${content}</li>`);
+        continue;
+      }
+      closeList();
+      if (!line.trim()) { out.push(''); continue; }
+      let content = line;
+      content = content.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+      content = content.replace(/_([^_]+)_/g, '<em>$1</em>');
+      out.push(`<p>${content}</p>`);
+    }
+    closeList();
+    return out.join('\n');
+  }
 
   document.addEventListener('DOMContentLoaded', init);
 })();

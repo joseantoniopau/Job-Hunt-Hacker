@@ -121,6 +121,27 @@ async def upload_resume(
     }}
 
 
+# ---------- base resume — LLM-built from vault, viewable + regeneratable ----------
+
+@router.post("/resume/base/generate")
+def post_generate_base_resume() -> dict:
+    """Generate (or regenerate) the user's base resume from the vault using
+    the LLM. Persists as a tailored_resume row with resume_type='base'."""
+    from ..services.base_resume import generate_base_resume
+    return generate_base_resume()
+
+
+@router.get("/resume/base")
+def get_current_base_resume() -> dict:
+    """Return the current base resume markdown + structured form, or null
+    if none has been generated yet."""
+    from ..services.base_resume import get_base_resume
+    r = get_base_resume()
+    if r is None:
+        return {"ok": True, "data": None}
+    return {"ok": True, "data": r}
+
+
 # ---------- list ----------
 
 @router.get("/resumes")

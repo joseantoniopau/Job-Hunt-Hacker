@@ -525,6 +525,23 @@ SCHEMA = [
         FOREIGN KEY (application_id) REFERENCES application(id) ON DELETE CASCADE
     )""",
     """CREATE INDEX IF NOT EXISTS idx_offer_analysis_app ON offer_analysis(application_id)""",
+
+    # ---- Career snapshot — LLM-generated narrative of who the user is + where to go ----
+    """CREATE TABLE IF NOT EXISTS career_snapshot (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        created_at REAL NOT NULL,
+        basic_info_json TEXT,
+        what_they_do TEXT,
+        career_stage TEXT,
+        career_stage_reasoning TEXT,
+        strengths_json TEXT,
+        next_steps_json TEXT,
+        job_recommendations_json TEXT,
+        narrative TEXT,
+        llm_run_id INTEGER,
+        is_latest INTEGER DEFAULT 1
+    )""",
+    """CREATE INDEX IF NOT EXISTS idx_career_snapshot_latest ON career_snapshot(is_latest, created_at)""",
 ]
 
 

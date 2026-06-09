@@ -11,7 +11,7 @@
     href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Serif:wght@400;600;700&display=swap"
     rel="stylesheet"
   />
-  <link rel="stylesheet" href="/styles.css?v=2026060906" />
+  <link rel="stylesheet" href="/styles.css?v=2026060907" />
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
   <meta http-equiv="Pragma" content="no-cache" />
   <meta http-equiv="Expires" content="0" />
@@ -190,6 +190,41 @@
         </p>
         <p id="autopilot-pill" class="autopilot-pill hidden" aria-live="polite"></p>
       </div>
+
+      <!-- ===== CAREER SNAPSHOT — LLM narrative of who you are + next steps ===== -->
+      <section class="card career-snapshot-card" id="career-snapshot-card">
+        <header class="card-head">
+          <h3>Your career snapshot</h3>
+          <div class="form-actions" style="margin:0;">
+            <button class="btn btn-secondary small" id="snapshot-generate-btn">GENERATE SNAPSHOT</button>
+            <button class="btn btn-ghost small hidden" id="snapshot-view-reasoning-btn">VIEW LLM REASONING</button>
+          </div>
+        </header>
+        <p class="muted small">
+          A plain-English read of what you do, where you are in your career, where to go next,
+          and which job titles to search for &mdash; all derived from your evidence vault.
+          Refresh after you add LinkedIn / GitHub / portfolio URLs or upload new evidence.
+        </p>
+        <div id="snapshot-empty" class="snapshot-empty muted small">No snapshot yet. Click GENERATE SNAPSHOT.</div>
+        <div id="snapshot-body" class="snapshot-body hidden"></div>
+      </section>
+
+      <!-- ===== BASE RESUME — viewable LLM-built resume from vault ===== -->
+      <section class="card base-resume-card" id="base-resume-card">
+        <header class="card-head">
+          <h3>Your base resume</h3>
+          <div class="form-actions" style="margin:0;">
+            <button class="btn btn-secondary small" id="base-resume-generate-btn">GENERATE BASE RESUME</button>
+            <button class="btn btn-ghost small hidden" id="base-resume-view-reasoning-btn">VIEW LLM REASONING</button>
+          </div>
+        </header>
+        <p class="muted small">
+          A clean resume drawn entirely from your verified vault claims. Every bullet cites the
+          claim it came from. Use this as the master &mdash; job-specific tailoring lives in RESUME LAB.
+        </p>
+        <div id="base-resume-empty" class="base-resume-empty muted small">No base resume yet. Click GENERATE BASE RESUME.</div>
+        <div id="base-resume-body" class="base-resume-body hidden"></div>
+      </section>
 
       <div class="mode-grid" role="list">
         <article class="card mode-card" role="listitem">
@@ -635,6 +670,19 @@
             RERANK TOP 30 WITH LLM
           </button>
           <span id="llm-rerank-status" class="muted small"></span>
+          <button class="btn btn-secondary small" type="button" id="jobs-refresh-btn"
+            title="Re-run the search (excluding dismissed jobs) and bring in new postings.">
+            REFRESH JOBS
+          </button>
+          <span id="jobs-refresh-status" class="muted small"></span>
+          <button class="btn btn-warn small hidden" type="button" id="jobs-dismiss-selected"
+            title="Mark the selected rows as dismissed. They'll be excluded from future REFRESH calls.">
+            DISMISS SELECTED
+          </button>
+          <button class="btn btn-secondary small hidden" type="button" id="jobs-save-selected"
+            title="Move the selected jobs into the pipeline as saved applications.">
+            SAVE SELECTED
+          </button>
           <span class="muted small" style="margin-left:auto;">SORT BY:</span>
           <div class="sort-toggle" role="group" aria-label="Sort jobs by">
             <button class="btn btn-secondary small sort-toggle-btn is-active"
@@ -653,12 +701,13 @@
           <table class="data-table results" id="results-table">
             <thead>
               <tr>
+                <th><input type="checkbox" id="jobs-select-all" title="Select all visible rows" /></th>
                 <th>RANK</th><th>TITLE</th><th>COMPANY</th><th>LOCATION</th>
                 <th>SCORE</th><th>LLM</th><th>SALARY</th><th>POSTED</th><th>SOURCE</th>
                 <th>BADGES</th><th>ACTIONS</th><th>URL</th>
               </tr>
             </thead>
-            <tbody><tr><td colspan="12" class="empty">No results yet &mdash; run a search above to populate.</td></tr></tbody>
+            <tbody><tr><td colspan="13" class="empty">No results yet &mdash; run a search above to populate.</td></tr></tbody>
           </table>
         </div>
       </section>
@@ -1369,6 +1418,20 @@ Select a resume to preview.
   </div>
 
   <!-- =========================================================
+       DELETE CONFIRMATION MODAL — used for kanban drag-out delete
+       ========================================================= -->
+  <div id="confirm-delete-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="confirm-delete-title">
+    <div class="modal-card confirm-delete-card">
+      <h3 id="confirm-delete-title">Delete?</h3>
+      <p id="confirm-delete-detail" class="muted small"></p>
+      <div class="form-actions">
+        <button class="btn btn-warn"  type="button" id="confirm-delete-yes">DELETE</button>
+        <button class="btn btn-ghost" type="button" id="confirm-delete-no">CANCEL</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- =========================================================
        JOB SAVE MODAL
        ========================================================= -->
   <div id="card-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="card-modal-title">
@@ -1571,6 +1634,6 @@ Select a resume to preview.
     <p>JOB&nbsp;HUNT&nbsp;HACKER &middot; local skill, MIT licensed &middot; never invents career facts</p>
   </footer>
 
-  <script src="/app.js?v=2026060906" defer></script>
+  <script src="/app.js?v=2026060907" defer></script>
 </body>
 </html>

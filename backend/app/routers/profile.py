@@ -695,6 +695,26 @@ def accept_proposal(pid: int, body: dict = Body(default={})) -> dict:
     }
 
 
+@router.post("/profile/snapshot")
+def post_profile_snapshot() -> dict:
+    """Generate the user's career snapshot — who they are, what they do,
+    where they are in their career, next-step recommendations + job
+    recommendations. Uses the LLM if available; honest deterministic
+    fallback when not. Persists as the new latest row."""
+    from ..services.career_snapshot import generate_snapshot
+    return generate_snapshot()
+
+
+@router.get("/profile/snapshot")
+def get_profile_snapshot() -> dict:
+    """Return the latest snapshot, or null if none generated yet."""
+    from ..services.career_snapshot import get_latest_snapshot
+    snap = get_latest_snapshot()
+    if snap is None:
+        return {"ok": True, "data": None}
+    return {"ok": True, "data": snap}
+
+
 @router.post("/profile/proposals/{pid}/reject")
 def reject_proposal(pid: int) -> dict:
     row = get_conn().execute(
