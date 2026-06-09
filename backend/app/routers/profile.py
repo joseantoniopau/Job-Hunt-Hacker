@@ -418,17 +418,100 @@ def _collect_titles(resume: dict[str, Any], linkedin: dict[str, Any]) -> list[st
     titles: list[str] = []
     for t in raw:
         cleaned = _clean_title(t)
-        if cleaned and 3 <= len(cleaned) <= 60:
+        if cleaned and 3 <= len(cleaned) <= 60 and _looks_like_role_title(cleaned):
             titles.append(cleaned)
 
     # Forward-looking suggestion based on the cleanest (first) title
     if titles:
         bumped = _bump_title(titles[0])
         for b in bumped:
-            if b and b not in titles:
+            if b and b not in titles and _looks_like_role_title(b):
                 titles.append(b)
 
     return dedupe_preserve_order(titles)[:6]
+
+
+# Role-indicator vocabulary covers every industry family Job Hunt Hacker
+# supports (tech, infosec, healthcare, legal, finance, creative, education,
+# trades, sales/marketing, ops). A cleaned title must contain at least one of
+# these tokens OR look like a multi-word role phrase — otherwise it is
+# rejected as a likely employer name (e.g. "eBay", "Google", "Stripe").
+_ROLE_INDICATORS = {
+    # tech
+    "engineer", "developer", "programmer", "architect", "scientist", "analyst",
+    "designer", "devops", "sre", "sysadmin", "administrator", "qa", "tester",
+    "researcher",
+    # security
+    "security", "infosec", "soc", "siem", "ir", "incident", "threat",
+    "vulnerability", "pentester", "ciso", "cyber", "hacker", "redteam",
+    "blueteam", "purple", "detection", "forensics", "grc", "compliance",
+    "auditor", "risk",
+    # management
+    "manager", "director", "lead", "leader", "head", "chief", "vp", "president",
+    "supervisor", "coordinator", "officer", "executive", "founder", "owner",
+    "partner", "principal", "staff", "senior", "junior", "intern", "associate",
+    # consulting / specialist
+    "specialist", "consultant", "advisor", "advocate", "agent", "representative",
+    "rep", "ambassador", "evangelist",
+    # medical
+    "nurse", "doctor", "physician", "therapist", "pharmacist", "technician",
+    "technologist", "paramedic", "medic", "surgeon", "dentist", "hygienist",
+    "radiologist", "clinician", "psychologist", "psychiatrist", "midwife",
+    "veterinarian", "vet",
+    # legal
+    "attorney", "lawyer", "paralegal", "counsel", "clerk", "judge", "barrister",
+    "solicitor",
+    # finance / accounting
+    "accountant", "controller", "bookkeeper", "trader", "broker", "banker",
+    "underwriter", "actuary", "treasurer", "cfo",
+    # creative
+    "writer", "editor", "journalist", "producer", "photographer", "artist",
+    "illustrator", "copywriter", "filmmaker", "musician", "composer",
+    "animator", "videographer", "creator",
+    # education
+    "teacher", "professor", "instructor", "dean", "tutor", "librarian",
+    "educator", "coach", "trainer", "facilitator",
+    # trades
+    "electrician", "plumber", "carpenter", "mechanic", "welder", "mason",
+    "foreman", "operator", "machinist", "driver", "pilot", "captain",
+    # sales / marketing / ops
+    "sales", "salesperson", "marketing", "marketer", "account", "buyer",
+    "merchandiser", "recruiter", "sourcer", "planner", "scheduler",
+    "dispatcher", "logistician",
+    # generic / catch-all roles
+    "engineer", "manager", "director", "specialist", "intern", "fellow",
+    "apprentice", "assistant", "administrator", "coordinator",
+}
+
+
+def _looks_like_role_title(s: str) -> bool:
+    """Reject likely company names that the resume parser confused with titles.
+
+    A real job title either:
+      (a) contains at least one token from the role-indicator vocabulary, OR
+      (b) contains a clear seniority/level prefix (Senior, Staff, Principal,
+          Lead, Head of, Chief, VP of, ...).
+    Single-word capitalized strings with neither signal — e.g. "eBay",
+    "Google", "Stripe" — are rejected.
+    """
+    s = (s or "").strip()
+    if not s:
+        return False
+    lower = s.lower()
+    tokens = re.findall(r"[a-z]+", lower)
+    if not tokens:
+        return False
+    if any(tok in _ROLE_INDICATORS for tok in tokens):
+        return True
+    # Seniority/leadership phrases that don't always carry a role noun on their own
+    if re.search(r"\b(head of|chief|vp of|vice president|c[a-z]o)\b", lower):
+        return True
+    # Final guard: a true title is rarely a single capitalized word.
+    # If we got here we matched no role indicator AND no seniority phrase, so
+    # require at least 2 alphabetic tokens AND no obvious company-only signal.
+    if len(tokens) >= 2 and not re.search(r"\b(inc|llc|ltd|corp|co|gmbh|s\.?a\.?|technologies|systems)\b", lower):
+        return True
+    return False
 
 
 def _clean_title(raw: str) -> str:

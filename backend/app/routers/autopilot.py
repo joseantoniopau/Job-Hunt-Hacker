@@ -203,19 +203,33 @@ async def autopilot_start(
 
     # 3. Run search using inferred target_titles --------------------------
     targets: list[str] = []
+    keywords: list[str] = []
     location_pref = ""
     try:
         from ..db import row_to_dict
-        prof_row = get_conn().execute("SELECT target_titles, preferred_locations, location FROM user_profile WHERE id=1").fetchone()
+        prof_row = get_conn().execute(
+            "SELECT target_titles, target_keywords, preferred_locations, location "
+            "FROM user_profile WHERE id=1"
+        ).fetchone()
         prof = row_to_dict(prof_row) or {}
         targets = prof.get("target_titles") or []
         if isinstance(targets, str):
             targets = [t.strip() for t in targets.split(",") if t.strip()]
+        keywords = prof.get("target_keywords") or []
+        if isinstance(keywords, str):
+            keywords = [t.strip() for t in keywords.split(",") if t.strip()]
         location_pref = (prof.get("preferred_locations") or [prof.get("location") or ""])[0] if (prof.get("preferred_locations") or prof.get("location")) else ""
     except Exception:
         pass
 
-    primary_query = targets[0] if targets else "engineer"
+    # Build a multi-query plan: search each of the top 3 titles independently
+    # rather than blasting only the first one. Falling back to a keyword-only
+    # query keeps the run productive even when title inference is sparse.
+    primary_queries: list[str] = [t for t in (targets or []) if t][:3]
+    if not primary_queries and keywords:
+        primary_queries = [" ".join(keywords[:3])]
+    if not primary_queries:
+        primary_queries = ["engineer"]
     raw_sites = [s.strip() for s in (sites or "").split(",") if s.strip()]
 
     # Expand sites the same way /api/search does: jobspy-supported scraper
@@ -246,25 +260,44 @@ async def autopilot_start(
     try:
         from ..services.job_sources.pipeline import search_all, persist
         from ..services.job_sources.base import JobSearchQuery
-        q = JobSearchQuery(
-            query=primary_query,
-            location=location_pref or None,
-            is_remote=not bool(location_pref),
-            results_per_site=int(search_results),
-            hours_old=int(search_hours_old),
-        )
-        sr = search_all(q, sites=sites_list)
-        # Surface any unknown sites the user requested so they're not silently dropped
+        # Distribute results_per_site across the queries so each title gets a
+        # fair slice without ballooning total request volume.
+        per_query_cap = max(5, int(search_results) // max(1, len(primary_queries)))
+        merged_records: list[dict] = []
+        per_source_agg: dict[str, int] = {}
+        errors_agg: dict[str, str] = {}
+        seen_keys: set[str] = set()
+        for query in primary_queries:
+            q = JobSearchQuery(
+                query=query,
+                location=location_pref or None,
+                is_remote=not bool(location_pref),
+                results_per_site=per_query_cap,
+                hours_old=int(search_hours_old),
+            )
+            sr = search_all(q, sites=sites_list)
+            for rec in sr.get("records", []):
+                # Dedupe across queries on (source, external_id) or apply_url.
+                key = (rec.get("source"), rec.get("external_id") or rec.get("apply_url") or rec.get("url"))
+                if key in seen_keys:
+                    continue
+                seen_keys.add(key)
+                merged_records.append(rec)
+            for src, count in (sr.get("per_source") or {}).items():
+                per_source_agg[src] = per_source_agg.get(src, 0) + int(count or 0)
+            for src, err in (sr.get("errors") or {}).items():
+                errors_agg.setdefault(src, str(err))
         for s in unknown_sites:
-            sr.setdefault("errors", {})[s] = "unknown_site"
-        pr = persist(sr.get("records", []))
-        summary["search"]["discovered"] = len(sr.get("records", []))
+            errors_agg.setdefault(s, "unknown_site")
+        pr = persist(merged_records)
+        summary["search"]["discovered"] = len(merged_records)
         summary["search"]["inserted"] = int(pr.get("inserted", 0))
-        summary["search"]["per_source"] = sr.get("per_source", {})
-        summary["search"]["errors"] = sr.get("errors", {})
+        summary["search"]["per_source"] = per_source_agg
+        summary["search"]["errors"] = errors_agg
         summary["search"]["new_ids"] = pr.get("ids", [])
+        summary["search"]["queries"] = primary_queries
         summary["steps"].append({"name": "search_complete", "status": "ok",
-                                 "detail": f"discovered={summary['search']['discovered']} new={summary['search']['inserted']}"})
+                                 "detail": f"queries={len(primary_queries)} discovered={summary['search']['discovered']} new={summary['search']['inserted']}"})
     except Exception as exc:  # noqa: BLE001
         log.warning("autopilot search step failed: %s", exc)
         summary["steps"].append({"name": "search_complete", "status": "error",

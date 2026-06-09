@@ -108,6 +108,7 @@ ROUTER_MODULES = [
     "email",
     "calendar",
     "settings",
+    "llm",
     "github",
     "urls",
     "scheduler",

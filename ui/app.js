@@ -224,6 +224,10 @@
     $('#autopilot-cancel').addEventListener('click', () => modal.classList.add('hidden'));
     modal.addEventListener('click', (e) => {
       if (e.target === modal) modal.classList.add('hidden');
+      // Any "jump to tab" link inside the result panel should also close the
+      // modal so the user actually lands on the tab they clicked.
+      const closer = e.target.closest('[data-close-autopilot]');
+      if (closer) modal.classList.add('hidden');
     });
 
     $('#autopilot-form').addEventListener('submit', async (e) => {
@@ -333,34 +337,46 @@
       }
 
       const goBtn = $('#autopilot-go');
-      goBtn.disabled = true;
-      goBtn.textContent = 'RUNNING…';
+      const cancelBtn = $('#autopilot-cancel');
+      const form = $('#autopilot-form');
       const progress = $('#autopilot-progress');
       const result = $('#autopilot-result');
+
+      goBtn.disabled = true;
+      goBtn.textContent = 'RUNNING…';
+      cancelBtn.textContent = 'CLOSE';
+      // Collapse the form during the run so progress is the only thing in view
+      form.classList.add('autopilot-running');
       progress.classList.remove('hidden');
       result.classList.add('hidden');
       progress.innerHTML = renderAutopilotProgress([
-        { name: 'profile_inferred', label: 'Inferring profile', status: 'pending' },
+        { name: 'profile_inferred', label: 'Inferring profile from resume', status: 'pending' },
         { name: 'vault_populated', label: 'Populating Career Evidence Vault', status: 'pending' },
-        { name: 'search_complete', label: 'Searching every job board', status: 'pending' },
+        { name: 'search_complete', label: 'Searching every job board (9 sources)', status: 'pending' },
         { name: 'scoring_complete', label: 'Scoring every job vs your evidence', status: 'pending' },
         { name: 'tailoring_complete', label: 'Tailoring resumes for top matches', status: 'pending' },
         { name: 'packets_built', label: 'Building application packets', status: 'pending' },
         { name: 'saved_search_registered', label: 'Scheduling daily re-run', status: 'pending' },
-      ]);
+      ], { running: true });
+      // Make sure the user actually sees the progress — scroll it into view
+      // inside the modal even on small screens.
+      try { progress.scrollIntoView({ block: 'start', behavior: 'smooth' }); } catch (_) {}
 
       const r = await api.post('/api/autopilot/start', fd, { silent: true });
       goBtn.disabled = false;
       goBtn.textContent = 'START AUTOPILOT';
+      form.classList.remove('autopilot-running');
 
       if (!r.ok && !r.data) {
         toast('Autopilot failed: ' + (r.error || 'unknown'), 'error');
+        progress.innerHTML = `<div class="ap-error">Autopilot failed: ${(r.error || 'unknown').replace(/</g,'&lt;')}</div>`;
         return;
       }
       const d = r.data || {};
-      progress.innerHTML = renderAutopilotProgress(d.steps || []);
+      progress.innerHTML = renderAutopilotProgress(d.steps || [], { running: false });
       result.classList.remove('hidden');
       result.innerHTML = renderAutopilotResult(d);
+      try { result.scrollIntoView({ block: 'start', behavior: 'smooth' }); } catch (_) {}
       toast(`Autopilot finished in ${(d.elapsed_ms || 0)/1000}s — ${d.packets?.built || 0} packets ready.`,
             'success');
       // Refresh background pill + nav stats
@@ -371,24 +387,44 @@
     loadAutopilotPill();
   }
 
-  function renderAutopilotProgress(steps) {
+  function renderAutopilotProgress(steps, opts) {
+    const running = !!(opts && opts.running);
+    const allOk = !running && (steps || []).length && (steps || []).every(s => s.status === 'ok');
+    const anyErr = !running && (steps || []).some(s => s.status === 'error');
     const rows = (steps || []).map(s => {
       const icon = s.status === 'ok' ? '✓' :
                    s.status === 'error' ? '×' :
-                   '·';
+                   running ? '◐' : '·';
       const cls = s.status === 'ok' ? 'ap-ok' :
                   s.status === 'error' ? 'ap-err' :
-                  'ap-pending';
+                  running ? 'ap-running' : 'ap-pending';
       return `<li class="ap-step ${cls}"><span class="ap-icon">${icon}</span>
                 <span class="ap-name">${s.label || s.name}</span>
                 <span class="ap-detail">${(s.detail || '').replace(/</g,'&lt;')}</span></li>`;
     }).join('');
-    return `<ul class="ap-list">${rows}</ul>`;
+    let header = '';
+    if (running) {
+      header = `<div class="ap-status-banner ap-status-running">
+        <strong>AUTOPILOT RUNNING…</strong>
+        <span class="muted small">Synchronous run — typically 5–30s. Don't close this window.</span>
+      </div>`;
+    } else if (allOk) {
+      header = `<div class="ap-status-banner ap-status-ok">
+        <strong>AUTOPILOT COMPLETE</strong>
+        <span class="muted small">All steps finished — see results below.</span>
+      </div>`;
+    } else if (anyErr) {
+      header = `<div class="ap-status-banner ap-status-err">
+        <strong>AUTOPILOT FINISHED WITH ERRORS</strong>
+        <span class="muted small">See per-step details below.</span>
+      </div>`;
+    }
+    return `${header}<ul class="ap-list">${rows}</ul>`;
   }
 
   function renderAutopilotResult(d) {
     const parts = [];
-    parts.push(`<h4>Done in ${((d.elapsed_ms || 0)/1000).toFixed(1)}s</h4>`);
+    parts.push(`<h4 class="ap-result-h">DONE IN ${((d.elapsed_ms || 0)/1000).toFixed(1)}S</h4>`);
     parts.push('<div class="ap-kpis">');
     parts.push(`<span class="ap-kpi"><strong>${d.search?.discovered ?? 0}</strong> discovered</span>`);
     parts.push(`<span class="ap-kpi"><strong>${d.search?.inserted ?? 0}</strong> new jobs</span>`);
@@ -396,9 +432,46 @@
     parts.push(`<span class="ap-kpi"><strong>${d.tailoring?.tailored ?? 0}</strong> tailored</span>`);
     parts.push(`<span class="ap-kpi"><strong>${d.packets?.built ?? 0}</strong> packets</span>`);
     parts.push('</div>');
+
+    // WHERE TO TRACK — primary handoff. Lives at top of the result panel
+    // because the modal stays open and the user otherwise has no obvious
+    // next step.
+    parts.push(`
+      <div class="ap-handoff">
+        <h4>TRACK YOUR HUNT</h4>
+        <p class="muted small">The popup will stay open so you can review packets here.
+          Everything is also wired into the main tabs below — click to jump.</p>
+        <div class="ap-handoff-grid">
+          <a class="ap-handoff-card" href="#pipeline" data-close-autopilot>
+            <strong>PIPELINE</strong>
+            <span class="muted small">Kanban of every application Autopilot prepared (status=prepared). Move them through Applied → Interview → Offer.</span>
+          </a>
+          <a class="ap-handoff-card" href="#dashboard" data-close-autopilot>
+            <strong>DASHBOARD</strong>
+            <span class="muted small">All ${d.search?.discovered ?? 0} discovered jobs with match scores, salary, source, and one-click TAILOR.</span>
+          </a>
+          <a class="ap-handoff-card" href="#resume" data-close-autopilot>
+            <strong>RESUME LAB</strong>
+            <span class="muted small">The ${d.tailoring?.tailored ?? 0} tailored resumes — diff vs. base, ATS score, honesty report per claim.</span>
+          </a>
+          <a class="ap-handoff-card" href="#vault" data-close-autopilot>
+            <strong>EVIDENCE VAULT</strong>
+            <span class="muted small">Every claim extracted from your resume, with provenance. Nothing is fabricated — what's here is what gets used.</span>
+          </a>
+          <a class="ap-handoff-card" href="#intel" data-close-autopilot>
+            <strong>INTEL</strong>
+            <span class="muted small">Velocity funnel, top skill gaps, salary read, company effectiveness leaderboard.</span>
+          </a>
+          <a class="ap-handoff-card" href="#inbox" data-close-autopilot>
+            <strong>INBOX</strong>
+            <span class="muted small">Recruiter replies pulled into one place (after you wire Gmail in Settings).</span>
+          </a>
+        </div>
+      </div>`);
+
     const paths = d.packets?.paths || [];
     if (paths.length) {
-      parts.push('<h4>Top packets ready for review</h4><ol class="ap-packets">');
+      parts.push('<h4>TOP PACKETS READY FOR REVIEW</h4><ol class="ap-packets">');
       for (const p of paths) {
         parts.push(`<li>
           <strong>${(p.title || '').replace(/</g,'&lt;')}</strong>
@@ -408,13 +481,14 @@
         </li>`);
       }
       parts.push('</ol>');
+      parts.push('<p class="muted small">Auto-apply is OFF by default. Packets are <strong>prepared</strong> in your pipeline; you click APPLY when you\'re ready.</p>');
     }
     if (d.saved_search?.created) {
       parts.push(`<p class="muted small">Recurring saved search active: <strong>${(d.saved_search.label || '').replace(/</g,'&lt;')}</strong> — re-runs every ${d.saved_search.frequency_hours || 24}h.</p>`);
     }
     parts.push('<div class="ap-actions">');
-    parts.push('<a class="btn btn-secondary" href="#pipeline">OPEN PIPELINE</a>');
-    parts.push('<a class="btn btn-ghost" href="#dashboard">OPEN DASHBOARD</a>');
+    parts.push('<a class="btn btn-primary" href="#pipeline" data-close-autopilot>OPEN PIPELINE</a>');
+    parts.push('<a class="btn btn-ghost" href="#dashboard" data-close-autopilot>OPEN DASHBOARD</a>');
     parts.push('</div>');
     return parts.join('');
   }
@@ -1909,7 +1983,161 @@
     tEl.textContent = total.toFixed(2);
     tEl.style.color = Math.abs(total - 1) < 0.001 ? 'var(--positive)' : 'var(--accent)';
   }
+
+  // ============================================================
+  // LOCAL LLM detection + pin
+  // ============================================================
+  function bindLocalLLM() {
+    const btn = $('#llm-discover');
+    const testBtn = $('#llm-test');
+    const tplBtn = $('#llm-use-template');
+    if (!btn) return;
+    btn.addEventListener('click', discoverLocalLLMs);
+    if (testBtn) testBtn.addEventListener('click', testActiveLLM);
+    if (tplBtn) tplBtn.addEventListener('click', async () => {
+      if (!confirm('Switch to the deterministic template provider? No LLM will be used.')) return;
+      const r = await api.post('/api/llm/use-template', {});
+      if (r.ok) {
+        toast('LLM disabled — using deterministic templates.', 'success');
+        loadSettings();
+      } else {
+        toast('Could not switch: ' + (r.error || 'unknown'), 'error');
+      }
+    });
+    // Wire up result-panel click handler (delegated)
+    $('#llm-discover-result').addEventListener('click', async (e) => {
+      const useBtn = e.target.closest('[data-use-model]');
+      if (!useBtn) return;
+      const baseUrl = useBtn.getAttribute('data-base-url');
+      const model = useBtn.getAttribute('data-use-model');
+      const kind = useBtn.getAttribute('data-kind') || 'ollama';
+      useBtn.disabled = true;
+      useBtn.textContent = 'PINNING…';
+      const r = await api.post('/api/llm/use-local', {
+        base_url: baseUrl, model, provider_kind: kind,
+      });
+      useBtn.disabled = false;
+      useBtn.textContent = 'USE THIS MODEL';
+      if (r.ok) {
+        toast(`Now using ${model} via local ${kind}.`, 'success');
+        $('#llm-status').textContent = `ACTIVE: ${kind} · ${model} · ${baseUrl}`;
+        loadSettings();
+      } else {
+        toast('Could not pin model: ' + (r.error || 'unknown'), 'error');
+      }
+    });
+  }
+
+  async function discoverLocalLLMs() {
+    const btn = $('#llm-discover');
+    const status = $('#llm-status');
+    const result = $('#llm-discover-result');
+    const guide = $('#llm-install-guide');
+    const guideBody = $('#llm-install-body');
+    btn.disabled = true; btn.textContent = 'SCANNING…';
+    status.textContent = 'Scanning loopback ports (11434, 1234, 8000, 8080)…';
+    result.classList.add('hidden');
+    guide.classList.add('hidden');
+
+    const r = await api.get('/api/llm/discover', { silent: true });
+    btn.disabled = false; btn.textContent = 'DETECT LOCAL LLMS';
+    if (!r.ok) {
+      status.textContent = 'Discovery failed: ' + (r.error || 'unknown');
+      return;
+    }
+    const d = r.data || {};
+    const daemons = d.daemons || [];
+    const rec = d.recommended || {};
+    const cur = d.current || {};
+    const ramGb = d.ram_gb || 0;
+
+    if (!daemons.length) {
+      status.textContent = `No local LLM daemon detected. RAM: ${ramGb || '?'} GB. ` +
+        `You can still use Anthropic / OpenAI by entering an API key below, ` +
+        `or install Ollama (see guide).`;
+      guide.classList.remove('hidden');
+      if (d.install_guide) guideBody.innerHTML = renderInstallGuide(d.install_guide, rec);
+      return;
+    }
+
+    status.textContent = `Found ${daemons.length} daemon(s) · ${ramGb} GB RAM · ` +
+      `current provider: ${cur.provider || 'auto'} (${cur.model || 'default'})`;
+    result.classList.remove('hidden');
+    result.innerHTML = renderDiscoveryResult(daemons, rec, cur, ramGb);
+  }
+
+  function renderDiscoveryResult(daemons, rec, cur, ramGb) {
+    const parts = [];
+    if (rec && rec.installed) {
+      parts.push(`<div class="llm-rec">
+        <strong>RECOMMENDED FOR YOU:</strong> ${rec.name}
+        <div class="muted small">${rec.reason || ''}</div>
+        <button class="btn btn-primary small" type="button"
+                data-use-model="${rec.name}"
+                data-base-url="${rec.base_url || daemons[0].base_url}"
+                data-kind="${rec.type || daemons[0].type}">USE THIS MODEL</button>
+      </div>`);
+    } else if (rec && !rec.installed) {
+      parts.push(`<div class="llm-rec llm-rec-pull">
+        <strong>SUGGESTED MODEL TO INSTALL:</strong> ${rec.name}
+        <div class="muted small">${rec.reason || ''}</div>
+        <pre class="codeblock"><code>ollama pull ${rec.name}</code></pre>
+      </div>`);
+    }
+    for (const daemon of daemons) {
+      parts.push(`<div class="llm-daemon">
+        <h5>${daemon.type.toUpperCase()} <span class="muted small">${daemon.base_url}</span></h5>
+        <div class="llm-model-grid">`);
+      for (const m of daemon.models) {
+        const isCurrent = (cur.model === m);
+        parts.push(`<div class="llm-model ${isCurrent ? 'llm-model-active' : ''}">
+          <span class="llm-model-name">${m}</span>
+          ${isCurrent
+            ? '<span class="ap-kpi" style="font-size:var(--fs-micro);">ACTIVE</span>'
+            : `<button class="btn btn-ghost small" type="button"
+                  data-use-model="${m}"
+                  data-base-url="${daemon.base_url}"
+                  data-kind="${daemon.type}">USE</button>`}
+        </div>`);
+      }
+      parts.push('</div></div>');
+    }
+    return parts.join('');
+  }
+
+  function renderInstallGuide(guide, rec) {
+    const parts = [`<p class="muted small">OS detected: <strong>${guide.os}</strong></p>`];
+    parts.push('<ol class="install-steps">');
+    for (const step of (guide.steps || [])) {
+      parts.push(`<li>
+        <strong>${step.title}</strong>
+        ${step.command ? `<pre class="codeblock"><code>${step.command}</code></pre>` : ''}
+        ${step.alt_command ? `<p class="muted small">or: ${step.alt_command}</p>` : ''}
+        ${step.note ? `<p class="muted small">${step.note}</p>` : ''}
+      </li>`);
+    }
+    parts.push('</ol>');
+    if (rec && rec.name) {
+      parts.push(`<p class="muted small">For this machine we recommend pulling
+        <strong>${rec.name}</strong> (${rec.reason || ''}).</p>`);
+    }
+    return parts.join('');
+  }
+
+  async function testActiveLLM() {
+    const btn = $('#llm-test');
+    btn.disabled = true; btn.textContent = 'TESTING…';
+    const r = await api.post('/api/llm/test', {});
+    btn.disabled = false; btn.textContent = 'TEST ACTIVE PROVIDER';
+    if (r.ok) {
+      const d = r.data || {};
+      toast(`OK · ${d.provider} (${d.model}) · ${d.elapsed_ms ?? '?'} ms · "${d.sample || ''}"`, 'success');
+    } else {
+      toast('LLM test failed: ' + (r.error || 'unknown'), 'error');
+    }
+  }
   function bindSettings() {
+    bindLocalLLM();
     $('#weights-form').addEventListener('input', refreshWeightTotal);
     $('#weights-form').addEventListener('submit', async (e) => {
       e.preventDefault();
@@ -2231,6 +2459,8 @@
     bindSettings();
     refreshWeightTotal();
     bootStatus();
+    bindLLMActivity();
+    startLLMActivityPoll();
 
     const start = (location.hash || '#landing').replace('#', '');
     switchPage(PAGES.includes(start) ? start : 'landing');
@@ -2434,6 +2664,173 @@
     }
     const refCo = $('#connections-refresh');
     if (refCo) refCo.addEventListener('click', loadNetwork);
+  }
+
+  // ============================================================
+  // LLM ACTIVITY PANEL — live view of what the LLM is doing
+  // ============================================================
+  const LLM_STAGE_LABELS = {
+    'llm_test': 'Provider test',
+    'profile_inference': 'Profile inference',
+    'profile_proposal': 'Profile proposal',
+    'vault_reingest': 'Vault re-ingest',
+    'evidence_extraction': 'Evidence extraction',
+    'llm_rerank': 'Job scoring rerank',
+    'resume_tailor': 'Resume tailoring',
+    'cover_letter': 'Cover letter',
+    'interview_prep': 'Interview prep',
+    'interview_practice': 'Interview practice',
+    'offer_analysis': 'Offer analysis',
+  };
+  let _llmPollHandle = null;
+  let _llmLastSeenId = 0;
+
+  function bindLLMActivity() {
+    const toggle = document.getElementById('llm-activity-toggle');
+    const panel = document.getElementById('llm-activity-panel');
+    const closer = document.getElementById('llm-activity-close');
+    if (!toggle || !panel) return;
+    toggle.addEventListener('click', () => {
+      const open = panel.classList.toggle('hidden');
+      toggle.setAttribute('aria-expanded', String(!open));
+      if (!open) refreshLLMActivity({ resetSeen: false, force: true });
+    });
+    if (closer) closer.addEventListener('click', () => {
+      panel.classList.add('hidden');
+      toggle.setAttribute('aria-expanded', 'false');
+    });
+    // Delegated click on a list item opens the run-detail modal
+    const list = document.getElementById('llm-activity-list');
+    if (list) list.addEventListener('click', (e) => {
+      const item = e.target.closest('[data-run-id]');
+      if (!item) return;
+      openLLMRunModal(Number(item.getAttribute('data-run-id')));
+    });
+    const modalClose = document.getElementById('llm-run-modal-close');
+    if (modalClose) modalClose.addEventListener('click', () => {
+      document.getElementById('llm-run-modal').classList.add('hidden');
+    });
+    const modal = document.getElementById('llm-run-modal');
+    if (modal) modal.addEventListener('click', (e) => {
+      if (e.target === modal) modal.classList.add('hidden');
+    });
+  }
+
+  function startLLMActivityPoll() {
+    refreshLLMActivity({ resetSeen: true, force: true });
+    if (_llmPollHandle) clearInterval(_llmPollHandle);
+    _llmPollHandle = setInterval(() => refreshLLMActivity({ resetSeen: false, force: false }), 2000);
+  }
+
+  async function refreshLLMActivity({ resetSeen, force } = {}) {
+    const r = await api.get('/api/llm/runs?limit=30', { silent: true });
+    if (!r.ok) return;
+    const d = r.data || {};
+    const runs = d.runs || [];
+    const active = d.active || 0;
+
+    // Update topbar pill
+    const pill = document.getElementById('llm-activity-toggle');
+    const dot = pill ? pill.querySelector('.llm-act-dot') : null;
+    const label = document.getElementById('llm-activity-label');
+    if (label) {
+      if (active > 0) label.textContent = `LLM RUNNING · ${active}`;
+      else if (runs.length) label.textContent = `LLM ${runs[0].status.toUpperCase()}`;
+      else label.textContent = 'LLM IDLE';
+    }
+    if (pill) {
+      pill.classList.toggle('pill-llm-active', active > 0);
+      pill.classList.toggle('pill-llm-error', !active && runs[0] && runs[0].status === 'error');
+    }
+    if (dot) dot.classList.toggle('pulse', active > 0);
+
+    // Toast on newly-finished runs (when panel is closed) so the user sees
+    // success/failure even if they don't open the panel.
+    const panelOpen = !document.getElementById('llm-activity-panel').classList.contains('hidden');
+    if (resetSeen) {
+      _llmLastSeenId = runs.length ? runs[0].id : 0;
+    } else if (!panelOpen) {
+      for (const run of runs) {
+        if (run.id <= _llmLastSeenId) break;
+        if (run.status === 'error') {
+          toast(`LLM ${stageLabel(run.stage)} failed: ${(run.error || '').slice(0, 80)}`, 'error');
+        }
+      }
+      if (runs.length) _llmLastSeenId = Math.max(_llmLastSeenId, runs[0].id);
+    } else {
+      if (runs.length) _llmLastSeenId = Math.max(_llmLastSeenId, runs[0].id);
+    }
+
+    // Update summary line
+    const summary = document.getElementById('llm-act-summary');
+    if (summary) summary.textContent = active ? `${active} running · last ${runs.length} shown` : `${runs.length} recent runs`;
+
+    // Re-render list if open OR forced
+    if (!panelOpen && !force) return;
+    const list = document.getElementById('llm-activity-list');
+    if (!list) return;
+    list.innerHTML = '';
+    if (!runs.length) {
+      list.appendChild(el('li', { class: 'muted small', text: 'No LLM runs yet. Trigger Autopilot or any LLM-powered action to see live activity here.' }));
+      return;
+    }
+    for (const r of runs) {
+      const li = document.createElement('li');
+      li.className = `llm-act-item llm-act-${r.status}`;
+      li.setAttribute('data-run-id', r.id);
+      li.setAttribute('tabindex', '0');
+      const ts = new Date(r.ts * 1000);
+      const when = ts.toLocaleTimeString();
+      const elapsed = r.elapsed_ms != null
+        ? `${(r.elapsed_ms / 1000).toFixed(1)}s`
+        : (r.status === 'running' ? '…' : '?');
+      li.innerHTML = `
+        <span class="llm-act-stage">${stageLabel(r.stage)}</span>
+        <span class="llm-act-meta muted small">${r.provider || ''}${r.model ? ' · ' + r.model.split(':').slice(0,2).join(':') : ''}</span>
+        <span class="llm-act-time muted small">${when}</span>
+        <span class="llm-act-status llm-act-status-${r.status}">${r.status.toUpperCase()}</span>
+        <span class="llm-act-elapsed muted small">${elapsed}</span>
+      `;
+      list.appendChild(li);
+    }
+  }
+
+  function stageLabel(stage) {
+    return LLM_STAGE_LABELS[stage] || stage || 'LLM call';
+  }
+
+  async function openLLMRunModal(runId) {
+    const modal = document.getElementById('llm-run-modal');
+    const body = document.getElementById('llm-run-detail');
+    if (!modal || !body) return;
+    body.innerHTML = `<p class="muted small">Loading run #${runId}…</p>`;
+    modal.classList.remove('hidden');
+    const r = await api.get(`/api/llm/runs/${runId}`, { silent: true });
+    if (!r.ok) {
+      body.innerHTML = `<p class="ap-error">Could not load run: ${r.error || 'unknown'}</p>`;
+      return;
+    }
+    const d = r.data || {};
+    const status = (d.status || '').toUpperCase();
+    const elapsed = d.elapsed_ms != null ? `${(d.elapsed_ms / 1000).toFixed(2)}s` : '?';
+    const esc = (s) => (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;');
+    body.innerHTML = `
+      <div class="ap-kpis">
+        <span class="ap-kpi"><strong>${stageLabel(d.stage)}</strong></span>
+        <span class="ap-kpi"><strong>${d.provider || ''}</strong></span>
+        <span class="ap-kpi"><strong>${(d.model || '').split(':').slice(0,2).join(':')}</strong></span>
+        <span class="ap-kpi"><strong>${elapsed}</strong></span>
+        <span class="ap-kpi llm-act-status-${d.status}"><strong>${status}</strong></span>
+      </div>
+      ${d.error ? `<div class="ap-error">${esc(d.error)}</div>` : ''}
+      <h4>SYSTEM PROMPT</h4>
+      <pre class="codeblock"><code>${esc(d.system_text)}</code></pre>
+      <h4>USER PROMPT</h4>
+      <pre class="codeblock"><code>${esc(d.user_text)}</code></pre>
+      <h4>OUTPUT</h4>
+      <pre class="codeblock"><code>${esc(d.output_text)}</code></pre>
+      <p class="muted small">Run #${d.id} · ${new Date(d.ts * 1000).toLocaleString()}</p>
+    `;
   }
 
   document.addEventListener('DOMContentLoaded', init);

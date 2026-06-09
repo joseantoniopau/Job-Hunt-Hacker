@@ -1970,6 +1970,100 @@ label[data-required]::after {
   margin-top: var(--s-4);
 }
 
+/* ====== Autopilot status banner + handoff grid ====== */
+.ap-status-banner {
+  display: flex; flex-direction: column; gap: 2px;
+  padding: var(--s-3) var(--s-4);
+  margin-bottom: var(--s-3);
+  border-left: 4px solid var(--hair-strong);
+  font-family: var(--mono);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.ap-status-banner strong { font-size: var(--fs-base); }
+.ap-status-running {
+  background: var(--card-2);
+  border-left-color: var(--cobalt, var(--accent));
+  animation: ap-pulse 1.2s ease-in-out infinite;
+}
+@keyframes ap-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.65; }
+}
+.ap-status-ok {
+  background: var(--positive-soft);
+  border-left-color: var(--positive);
+}
+.ap-status-err {
+  background: var(--accent-soft);
+  border-left-color: var(--accent);
+}
+.ap-step.ap-running {
+  border-left-color: var(--cobalt, var(--accent));
+  background: var(--card-2);
+}
+.ap-step.ap-running .ap-icon {
+  color: var(--cobalt, var(--accent));
+  animation: ap-pulse 1.2s ease-in-out infinite;
+}
+.ap-error {
+  padding: var(--s-3) var(--s-4);
+  border-left: 4px solid var(--accent);
+  background: var(--accent-soft);
+  font-family: var(--mono);
+}
+.ap-result-h {
+  margin: 0 0 var(--s-3);
+  font-family: var(--mono);
+  letter-spacing: 0.08em;
+}
+.ap-handoff {
+  margin: var(--s-4) 0;
+  padding: var(--s-4);
+  border: var(--border-thin);
+  background: var(--bg);
+}
+.ap-handoff h4 {
+  margin: 0 0 var(--s-2);
+  font-family: var(--mono);
+  letter-spacing: 0.08em;
+}
+.ap-handoff-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: var(--s-3);
+  margin-top: var(--s-3);
+}
+.ap-handoff-card {
+  display: flex; flex-direction: column; gap: var(--s-2);
+  padding: var(--s-3);
+  border: var(--border-thin);
+  background: var(--card);
+  text-decoration: none;
+  color: var(--ink);
+  transition: transform 80ms ease, border-color 80ms ease;
+}
+.ap-handoff-card:hover {
+  transform: translate(-2px, -2px);
+  border-color: var(--accent);
+  box-shadow: 4px 4px 0 0 var(--accent);
+}
+.ap-handoff-card strong {
+  font-family: var(--mono);
+  letter-spacing: 0.08em;
+  color: var(--accent);
+}
+/* While Autopilot is running, hide the form inputs but KEEP the action bar
+   visible (it still has a CLOSE button) so the user has an obvious escape. */
+form.autopilot-running > :is(label, fieldset, details) {
+  display: none;
+}
+form.autopilot-running { gap: var(--s-3); }
+form.autopilot-running .form-actions {
+  border-top: var(--border-thin);
+  padding-top: var(--s-3);
+}
+
 .ap-fieldset {
   margin: var(--s-3) 0;
   padding: var(--s-3) var(--s-4);
@@ -2077,3 +2171,191 @@ label[data-required]::after {
   padding: var(--s-1) 0;
 }
 .autopilot-extras > label, .autopilot-extras > .three-col { margin-top: var(--s-3); }
+
+/* ====== LLM ACTIVITY pill + floating panel ====== */
+.pill-llm {
+  border: var(--border-thin);
+  background: var(--card-2);
+  color: var(--ink);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  font-family: var(--mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: var(--s-1) var(--s-3);
+  font-size: var(--fs-micro);
+}
+.pill-llm:hover { border-color: var(--accent); }
+.pill-llm-active {
+  background: var(--positive-soft);
+  border-color: var(--positive);
+}
+.pill-llm-error {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+.llm-act-dot {
+  width: 8px; height: 8px; border-radius: 0; background: var(--muted);
+  display: inline-block;
+}
+.pill-llm-active .llm-act-dot {
+  background: var(--positive);
+}
+.pill-llm-error .llm-act-dot { background: var(--accent); }
+.llm-act-dot.pulse { animation: llm-dot-pulse 1.1s ease-in-out infinite; }
+@keyframes llm-dot-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(1.5); }
+}
+.llm-activity-panel {
+  position: fixed;
+  top: 72px;
+  right: var(--s-4);
+  width: min(440px, calc(100vw - var(--s-4) * 2));
+  max-height: calc(100vh - 100px);
+  z-index: 90;
+  background: var(--card);
+  border: var(--border);
+  box-shadow: 8px 8px 0 0 rgba(0,0,0,0.18);
+  display: flex; flex-direction: column;
+}
+.llm-act-head {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: var(--s-3) var(--s-4);
+  border-bottom: var(--border-thin);
+}
+.llm-act-head h3 { margin: 0; font-family: var(--mono); letter-spacing: 0.08em; }
+.llm-act-head-controls { display: flex; align-items: center; gap: var(--s-3); }
+.llm-act-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  max-height: 60vh;
+}
+.llm-act-item {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  grid-template-areas:
+    "stage status elapsed"
+    "meta time time";
+  align-items: center;
+  gap: 2px var(--s-2);
+  padding: var(--s-2) var(--s-4);
+  border-bottom: 1px dashed var(--hair-strong);
+  cursor: pointer;
+  font-family: var(--mono);
+  font-size: var(--fs-small);
+}
+.llm-act-item:hover { background: var(--card-2); }
+.llm-act-stage { grid-area: stage; font-weight: 600; }
+.llm-act-meta { grid-area: meta; }
+.llm-act-time { grid-area: time; text-align: right; }
+.llm-act-elapsed { grid-area: elapsed; text-align: right; }
+.llm-act-status {
+  grid-area: status;
+  padding: 1px 6px;
+  font-size: var(--fs-micro);
+  letter-spacing: 0.06em;
+  border: 1px solid var(--hair-strong);
+}
+.llm-act-status-running, .llm-act-running { background: var(--card-2); }
+.llm-act-status-ok, .llm-act-ok { background: var(--positive-soft); border-color: var(--positive); }
+.llm-act-status-error, .llm-act-error { background: var(--accent-soft); border-color: var(--accent); }
+.llm-act-status-empty, .llm-act-empty { background: var(--card-2); }
+.llm-act-foot {
+  padding: var(--s-2) var(--s-4);
+  border-top: var(--border-thin);
+}
+.llm-run-detail h4 {
+  margin: var(--s-3) 0 var(--s-2);
+  font-family: var(--mono);
+  letter-spacing: 0.08em;
+}
+.llm-run-detail .codeblock {
+  background: var(--ink);
+  color: var(--bg);
+  padding: var(--s-3);
+  font-family: var(--mono);
+  font-size: var(--fs-small);
+  max-height: 240px;
+  overflow: auto;
+  white-space: pre-wrap;
+}
+@media (max-width: 600px) {
+  .llm-activity-panel { right: var(--s-2); left: var(--s-2); width: auto; top: 60px; }
+}
+
+/* ====== LOCAL LLM panel ====== */
+.local-llm-card .llm-result { margin-top: var(--s-3); }
+.llm-rec {
+  padding: var(--s-3) var(--s-4);
+  margin-bottom: var(--s-3);
+  border-left: 4px solid var(--positive);
+  background: var(--positive-soft);
+}
+.llm-rec strong { font-family: var(--mono); letter-spacing: 0.08em; }
+.llm-rec button { margin-top: var(--s-2); }
+.llm-rec-pull { border-left-color: var(--cobalt, var(--accent)); background: var(--card-2); }
+.llm-daemon {
+  margin-bottom: var(--s-3);
+  padding: var(--s-3);
+  border: var(--border-thin);
+  background: var(--bg);
+}
+.llm-daemon h5 {
+  margin: 0 0 var(--s-2);
+  font-family: var(--mono);
+  letter-spacing: 0.08em;
+  font-size: var(--fs-small);
+  text-transform: uppercase;
+}
+.llm-model-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: var(--s-2);
+}
+.llm-model {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--s-2);
+  padding: var(--s-2) var(--s-3);
+  border: 1px dashed var(--hair-strong);
+  background: var(--card);
+  font-family: var(--mono);
+  font-size: var(--fs-small);
+}
+.llm-model-active {
+  border: 2px solid var(--positive);
+  background: var(--positive-soft);
+}
+.llm-model-name { word-break: break-all; }
+.llm-install-guide {
+  margin-top: var(--s-3);
+  padding: var(--s-3) var(--s-4);
+  border: 1px dashed var(--hair-strong);
+  background: var(--card-2);
+}
+.llm-install-guide summary {
+  cursor: pointer;
+  font-family: var(--mono);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.install-steps {
+  padding-left: var(--s-5);
+  margin: var(--s-3) 0;
+}
+.install-steps li { margin-bottom: var(--s-4); }
+.install-steps .codeblock {
+  margin: var(--s-2) 0;
+  padding: var(--s-2) var(--s-3);
+  background: var(--ink);
+  color: var(--bg);
+  font-family: var(--mono);
+  font-size: var(--fs-small);
+  overflow-x: auto;
+}

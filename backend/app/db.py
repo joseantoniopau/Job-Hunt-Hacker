@@ -408,6 +408,123 @@ SCHEMA = [
     )""",
     """CREATE INDEX IF NOT EXISTS idx_connection_company_conn ON connection_company(connection_id)""",
     """CREATE INDEX IF NOT EXISTS idx_connection_company_co ON connection_company(company)""",
+
+    # ---- LLM observability ----
+    """CREATE TABLE IF NOT EXISTS llm_run (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ts REAL NOT NULL,
+        finished_ts REAL,
+        provider TEXT,
+        model TEXT,
+        stage TEXT NOT NULL,
+        target_type TEXT,
+        target_id INTEGER,
+        system_text TEXT,
+        user_text TEXT,
+        output_text TEXT,
+        status TEXT NOT NULL,
+        error TEXT,
+        prompt_chars INTEGER,
+        output_chars INTEGER,
+        elapsed_ms INTEGER
+    )""",
+    """CREATE INDEX IF NOT EXISTS idx_llm_run_ts ON llm_run(ts)""",
+    """CREATE INDEX IF NOT EXISTS idx_llm_run_stage ON llm_run(stage)""",
+    """CREATE INDEX IF NOT EXISTS idx_llm_run_status ON llm_run(status)""",
+
+    # ---- LLM-enhanced profile inference: store proposal for human gate ----
+    """CREATE TABLE IF NOT EXISTS profile_proposal (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        created_at REAL NOT NULL,
+        source TEXT NOT NULL,
+        deterministic_json TEXT,
+        llm_json TEXT,
+        llm_run_id INTEGER,
+        status TEXT DEFAULT 'pending',
+        accepted_fields_json TEXT,
+        applied_at REAL
+    )""",
+    """CREATE INDEX IF NOT EXISTS idx_profile_proposal_status ON profile_proposal(status)""",
+
+    # ---- LLM rerank scores (kept separate from deterministic job_match) ----
+    """CREATE TABLE IF NOT EXISTS llm_job_score (
+        job_id INTEGER PRIMARY KEY,
+        semantic_score REAL,
+        fit_summary TEXT,
+        strengths_json TEXT,
+        gaps_json TEXT,
+        red_flags_json TEXT,
+        recommended_action TEXT,
+        llm_run_id INTEGER,
+        created_at REAL,
+        FOREIGN KEY (job_id) REFERENCES job_posting(id) ON DELETE CASCADE
+    )""",
+    """CREATE INDEX IF NOT EXISTS idx_llm_job_score_score ON llm_job_score(semantic_score)""",
+
+    # ---- Interview prep packets + practice sessions ----
+    """CREATE TABLE IF NOT EXISTS interview_prep_packet (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        application_id INTEGER,
+        job_id INTEGER,
+        created_at REAL NOT NULL,
+        company_brief TEXT,
+        behavioral_questions_json TEXT,
+        technical_questions_json TEXT,
+        scenario_questions_json TEXT,
+        star_skeletons_json TEXT,
+        llm_run_id INTEGER,
+        FOREIGN KEY (application_id) REFERENCES application(id) ON DELETE CASCADE,
+        FOREIGN KEY (job_id) REFERENCES job_posting(id) ON DELETE SET NULL
+    )""",
+    """CREATE INDEX IF NOT EXISTS idx_iv_prep_app ON interview_prep_packet(application_id)""",
+
+    """CREATE TABLE IF NOT EXISTS interview_practice_session (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        application_id INTEGER,
+        prep_packet_id INTEGER,
+        started_at REAL NOT NULL,
+        finished_at REAL,
+        status TEXT DEFAULT 'active',
+        question_count INTEGER DEFAULT 0,
+        avg_score REAL,
+        FOREIGN KEY (application_id) REFERENCES application(id) ON DELETE CASCADE,
+        FOREIGN KEY (prep_packet_id) REFERENCES interview_prep_packet(id) ON DELETE SET NULL
+    )""",
+    """CREATE INDEX IF NOT EXISTS idx_iv_session_app ON interview_practice_session(application_id)""",
+
+    """CREATE TABLE IF NOT EXISTS interview_practice_turn (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_id INTEGER NOT NULL,
+        turn_index INTEGER NOT NULL,
+        question_text TEXT NOT NULL,
+        question_type TEXT,
+        user_answer TEXT,
+        feedback_text TEXT,
+        score REAL,
+        evidence_used_json TEXT,
+        llm_run_id INTEGER,
+        created_at REAL NOT NULL,
+        FOREIGN KEY (session_id) REFERENCES interview_practice_session(id) ON DELETE CASCADE
+    )""",
+    """CREATE INDEX IF NOT EXISTS idx_iv_turn_session ON interview_practice_turn(session_id)""",
+
+    # ---- Offer analysis ----
+    """CREATE TABLE IF NOT EXISTS offer_analysis (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        application_id INTEGER,
+        created_at REAL NOT NULL,
+        offer_text TEXT,
+        components_json TEXT,
+        market_comparison_json TEXT,
+        counter_script_json TEXT,
+        red_flags_json TEXT,
+        equity_analysis_json TEXT,
+        total_score REAL,
+        recommendation TEXT,
+        llm_run_id INTEGER,
+        FOREIGN KEY (application_id) REFERENCES application(id) ON DELETE CASCADE
+    )""",
+    """CREATE INDEX IF NOT EXISTS idx_offer_analysis_app ON offer_analysis(application_id)""",
 ]
 
 

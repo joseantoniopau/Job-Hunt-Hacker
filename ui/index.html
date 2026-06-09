@@ -11,7 +11,7 @@
     href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Serif:wght@400;600;700&display=swap"
     rel="stylesheet"
   />
-  <link rel="stylesheet" href="/styles.css?v=2026060801" />
+  <link rel="stylesheet" href="/styles.css?v=2026060903" />
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
   <meta http-equiv="Pragma" content="no-cache" />
   <meta http-equiv="Expires" content="0" />
@@ -44,6 +44,12 @@
         <a href="#settings"  data-tab="settings">SETTINGS</a>
       </nav>
       <div class="topbar-right">
+        <button id="llm-activity-toggle" class="pill pill-llm" type="button"
+                title="LLM activity — click to open the live panel"
+                aria-haspopup="dialog" aria-expanded="false">
+          <span class="llm-act-dot" aria-hidden="true"></span>
+          <span id="llm-activity-label">LLM IDLE</span>
+        </button>
         <span id="mode-pill"   class="pill pill-blue"  title="Default mode">MODE: ASSISTED</span>
         <span id="health-pill" class="pill pill-muted" title="Server health">CHECKING</span>
       </div>
@@ -56,6 +62,33 @@
 
   <!-- toasts -->
   <div id="toasts" class="toasts" aria-live="polite" aria-atomic="true"></div>
+
+  <!-- Floating LLM activity panel — shows what the LLM is doing right now -->
+  <aside id="llm-activity-panel" class="llm-activity-panel hidden" role="dialog"
+         aria-labelledby="llm-activity-title" aria-modal="false">
+    <header class="llm-act-head">
+      <h3 id="llm-activity-title">LLM ACTIVITY</h3>
+      <div class="llm-act-head-controls">
+        <span id="llm-act-summary" class="muted small">idle</span>
+        <button id="llm-activity-close" class="btn btn-ghost small" type="button" aria-label="Close">CLOSE</button>
+      </div>
+    </header>
+    <ul id="llm-activity-list" class="llm-act-list" aria-live="polite"></ul>
+    <footer class="llm-act-foot">
+      <span class="muted small">Live polling every 2s &middot; click any run to see prompt &amp; output</span>
+    </footer>
+  </aside>
+
+  <!-- Modal for a single LLM run detail -->
+  <div id="llm-run-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="llm-run-modal-title">
+    <div class="modal-card">
+      <h3 id="llm-run-modal-title">LLM RUN</h3>
+      <div id="llm-run-detail" class="llm-run-detail">Loading&hellip;</div>
+      <div class="form-actions">
+        <button class="btn btn-ghost" type="button" id="llm-run-modal-close">CLOSE</button>
+      </div>
+    </div>
+  </div>
 
   <main class="main">
 
@@ -893,6 +926,33 @@ Select a resume to preview.
         </div>
       </section>
 
+      <!-- ============ LOCAL LLM ============ -->
+      <section class="card local-llm-card">
+        <header class="card-head">
+          <h3>Local LLM</h3>
+          <span class="muted small">use your own machine for private, free inference</span>
+        </header>
+        <p class="muted small">
+          Job Hunt Hacker uses an LLM to <strong>enhance</strong> resume parsing,
+          tailoring, cover letters, interview prep, and offer analysis — but it
+          is <strong>not required</strong>. A deterministic template provider
+          handles everything if no LLM is connected. The skill will use the
+          best provider available, in this order: <em>Anthropic → OpenAI →
+          local Ollama / LM Studio / vLLM → deterministic templates</em>.
+        </p>
+        <div class="form-actions">
+          <button class="btn btn-secondary" id="llm-discover">DETECT LOCAL LLMS</button>
+          <button class="btn btn-ghost small" id="llm-test">TEST ACTIVE PROVIDER</button>
+          <button class="btn btn-ghost small" id="llm-use-template">DISABLE LLM (use templates)</button>
+        </div>
+        <p id="llm-status" class="muted small" aria-live="polite">Click DETECT to scan your machine.</p>
+        <div id="llm-discover-result" class="llm-result hidden"></div>
+        <details id="llm-install-guide" class="llm-install-guide hidden">
+          <summary>No local LLM yet? <strong>SHOW INSTALL GUIDE</strong></summary>
+          <div id="llm-install-body"></div>
+        </details>
+      </section>
+
       <section class="card">
         <header class="card-head">
           <h3>Job source connectors</h3>
@@ -1109,6 +1169,10 @@ Select a resume to preview.
         re-run. Walk away. Come back to your pipeline.
       </p>
 
+      <!-- Live status surfaces (live region for screen readers, scroll target for sighted users) -->
+      <div id="autopilot-progress" class="autopilot-progress hidden" aria-live="polite"></div>
+      <div id="autopilot-result" class="autopilot-result hidden" aria-live="polite"></div>
+
       <form id="autopilot-form" class="stack" novalidate>
         <!-- STEP 1: Resume -->
         <label class="ap-step-label"><span class="ap-step-num">1</span> Drop your resume <em class="muted small">(PDF / DOCX / TXT / MD)</em>
@@ -1258,9 +1322,6 @@ Select a resume to preview.
           <button class="btn btn-primary" type="submit" id="autopilot-go">START AUTOPILOT</button>
           <button class="btn btn-ghost" type="button" id="autopilot-cancel">CANCEL</button>
         </div>
-
-        <div id="autopilot-progress" class="autopilot-progress hidden"></div>
-        <div id="autopilot-result" class="autopilot-result hidden"></div>
       </form>
     </div>
   </div>
@@ -1269,6 +1330,6 @@ Select a resume to preview.
     <p>JOB&nbsp;HUNT&nbsp;HACKER &middot; local skill, MIT licensed &middot; never invents career facts</p>
   </footer>
 
-  <script src="/app.js" defer></script>
+  <script src="/app.js?v=2026060903" defer></script>
 </body>
 </html>
