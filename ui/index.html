@@ -11,7 +11,7 @@
     href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Serif:wght@400;600;700&display=swap"
     rel="stylesheet"
   />
-  <link rel="stylesheet" href="/styles.css?v=2026060907" />
+  <link rel="stylesheet" href="/styles.css?v=2026060908" />
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
   <meta http-equiv="Pragma" content="no-cache" />
   <meta http-equiv="Expires" content="0" />
@@ -190,6 +190,39 @@
         </p>
         <p id="autopilot-pill" class="autopilot-pill hidden" aria-live="polite"></p>
       </div>
+
+      <!-- ===== URL INGEST STATUS — surfaces robots-blocked LinkedIn so the user knows to paste ===== -->
+      <section class="card url-ingest-card hidden" id="url-ingest-card">
+        <header class="card-head">
+          <h3>Vault evidence sources</h3>
+          <button class="btn btn-ghost small" id="url-ingest-refresh-btn">REFRESH</button>
+        </header>
+        <p class="muted small">
+          One row per profile URL. <strong>LinkedIn blocks our automated
+          fetch</strong> (robots.txt) — paste your profile text below
+          and we'll run the LLM extractor on it. GitHub + portfolio URLs
+          fetch automatically.
+        </p>
+        <ul id="url-ingest-list" class="url-ingest-list"></ul>
+
+        <div id="linkedin-paste-block" class="linkedin-paste-block hidden">
+          <h4>Paste your LinkedIn profile</h4>
+          <p class="muted small">
+            Open your LinkedIn profile in a browser, select all the visible text
+            (Cmd+A / Ctrl+A on the page), copy, and paste here. Or download your
+            LinkedIn data export and paste the contents of <code>Profile.csv</code>.
+            We'll create a <code>linkedin</code> evidence source and extract claims
+            with the LLM — every claim must literally match the pasted text or
+            it gets dropped.
+          </p>
+          <textarea id="linkedin-paste-text" rows="10"
+            placeholder="Paste your LinkedIn profile text here…"></textarea>
+          <div class="form-actions">
+            <button class="btn btn-primary" type="button" id="linkedin-paste-ingest">INGEST + EXTRACT WITH LLM</button>
+            <span id="linkedin-paste-status" class="muted small"></span>
+          </div>
+        </div>
+      </section>
 
       <!-- ===== CAREER SNAPSHOT — LLM narrative of who you are + next steps ===== -->
       <section class="card career-snapshot-card" id="career-snapshot-card">
@@ -1634,6 +1667,6 @@ Select a resume to preview.
     <p>JOB&nbsp;HUNT&nbsp;HACKER &middot; local skill, MIT licensed &middot; never invents career facts</p>
   </footer>
 
-  <script src="/app.js?v=2026060907" defer></script>
+  <script src="/app.js?v=2026060908" defer></script>
 </body>
 </html>

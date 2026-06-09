@@ -3346,6 +3346,7 @@
     bindCareerSnapshot();
     bindBaseResume();
     bindDashboardSelection();
+    bindUrlIngestStatus();
     refreshWeightTotal();
     bootStatus();
     bindLLMActivity();
@@ -5115,6 +5116,99 @@
     }
     closeList();
     return out.join('\n');
+  }
+
+  // ============================================================
+  // URL INGEST STATUS — surfaces robots-blocked LinkedIn paste UI
+  // ============================================================
+  function bindUrlIngestStatus() {
+    const card = document.getElementById('url-ingest-card');
+    if (!card) return;
+    const refresh = document.getElementById('url-ingest-refresh-btn');
+    if (refresh) refresh.addEventListener('click', loadUrlIngestStatus);
+    const ingest = document.getElementById('linkedin-paste-ingest');
+    if (ingest) ingest.addEventListener('click', ingestLinkedInPaste);
+    loadUrlIngestStatus();
+  }
+
+  async function loadUrlIngestStatus() {
+    const r = await api.get('/api/profile/url-ingest-status', { silent: true });
+    if (!r.ok) return;
+    const data = r.data || {};
+    const card = document.getElementById('url-ingest-card');
+    const list = document.getElementById('url-ingest-list');
+    const pasteBlock = document.getElementById('linkedin-paste-block');
+    if (!card || !list) return;
+
+    // Show card only when at least one URL is configured
+    const anyUrl = Object.values(data).some(v => v && v.url);
+    card.classList.toggle('hidden', !anyUrl);
+
+    list.innerHTML = '';
+    const labels = {
+      linkedin_url: 'LINKEDIN',
+      github_url: 'GITHUB',
+      portfolio_url: 'PORTFOLIO',
+    };
+    let needsLinkedInPaste = false;
+    for (const [field, label] of Object.entries(labels)) {
+      const row = data[field];
+      if (!row || !row.url) continue;
+      const status = row.status || 'unknown';
+      const cls = row.ingested ? 'url-row-ok'
+        : status === 'blocked_by_robots' ? 'url-row-blocked'
+        : 'url-row-pending';
+      const statusBadge = row.ingested
+        ? `<span class="ap-kpi" style="background:var(--positive-soft);">OK · ${row.char_count} chars</span>`
+        : status === 'blocked_by_robots'
+        ? `<span class="ap-kpi" style="background:var(--accent-soft);color:var(--accent);">BLOCKED · robots.txt</span>`
+        : `<span class="ap-kpi" style="background:var(--card-2);">NOT FETCHED</span>`;
+      const li = document.createElement('li');
+      li.className = 'url-row ' + cls;
+      li.innerHTML = `
+        <span class="url-row-label">${label}</span>
+        <a href="${row.url}" target="_blank" rel="noopener" class="url-row-url">${row.url}</a>
+        ${statusBadge}
+        ${row.remediation ? `<span class="muted small url-row-hint">${row.remediation}</span>` : ''}
+      `;
+      list.appendChild(li);
+      if (field === 'linkedin_url' && !row.ingested) needsLinkedInPaste = true;
+    }
+    if (pasteBlock) pasteBlock.classList.toggle('hidden', !needsLinkedInPaste);
+  }
+
+  async function ingestLinkedInPaste() {
+    const textarea = document.getElementById('linkedin-paste-text');
+    const btn = document.getElementById('linkedin-paste-ingest');
+    const status = document.getElementById('linkedin-paste-status');
+    if (!textarea || !btn) return;
+    const text = (textarea.value || '').trim();
+    if (text.length < 100) {
+      toast('Paste at least 100 characters of your LinkedIn profile.', 'error');
+      return;
+    }
+    btn.disabled = true; btn.textContent = 'INGESTING + EXTRACTING…';
+    if (status) status.textContent = 'Saving paste + running LLM extractor (1–5 min on 70B)…';
+    const r = await api.post('/api/vault/quick-update', {
+      paste_text: text,
+      paste_label: 'LinkedIn profile (pasted)',
+      paste_source_type: 'linkedin',
+    });
+    btn.disabled = false; btn.textContent = 'INGEST + EXTRACT WITH LLM';
+    if (!r.ok) {
+      if (status) status.textContent = 'Failed: ' + (r.error || 'unknown');
+      return;
+    }
+    const d = r.data || {};
+    const claims = d.claims_inserted ?? d.claims ?? 0;
+    const dropped = d.claims_dropped_unverified ?? 0;
+    if (status) status.textContent = `Inserted ${claims} verified claim(s); dropped ${dropped} unverifiable.`;
+    toast(`LinkedIn ingested · ${claims} claims · ${dropped} dropped`, 'success');
+    textarea.value = '';
+    await loadUrlIngestStatus();
+    // Re-render the snapshot + base resume with the new claims if they exist
+    await loadCareerSnapshot();
+    await loadBaseResume();
   }
 
   document.addEventListener('DOMContentLoaded', init);

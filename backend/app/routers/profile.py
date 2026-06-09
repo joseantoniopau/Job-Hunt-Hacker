@@ -695,6 +695,50 @@ def accept_proposal(pid: int, body: dict = Body(default={})) -> dict:
     }
 
 
+@router.get("/profile/url-ingest-status")
+def get_url_ingest_status() -> dict:
+    """For each profile URL field, report whether the corresponding
+    evidence_source has actually been ingested. The LinkedIn URL in
+    particular often shows status='blocked_by_robots' since LinkedIn's
+    robots.txt forbids unauthenticated profile crawls. The UI uses this
+    to surface a paste-this-text fallback prominently."""
+    conn = get_conn()
+    row = conn.execute(
+        "SELECT linkedin_url, github_url, portfolio_url FROM user_profile WHERE id = 1"
+    ).fetchone()
+    if not row:
+        return {"ok": True, "data": {}}
+    out: dict[str, Any] = {}
+    for field, source_type in (("linkedin_url", "linkedin"),
+                               ("github_url", "github"),
+                               ("portfolio_url", "portfolio")):
+        url = (row[field] or "").strip()
+        if not url:
+            out[field] = {"url": "", "ingested": False, "status": "unset",
+                          "evidence_source_id": None, "char_count": 0}
+            continue
+        src = conn.execute(
+            "SELECT id, length(raw_text) AS chars FROM evidence_source "
+            "WHERE source_type = ? AND url = ? ORDER BY id DESC LIMIT 1",
+            (source_type, url),
+        ).fetchone()
+        if src and (src["chars"] or 0) > 0:
+            out[field] = {"url": url, "ingested": True, "status": "ok",
+                          "evidence_source_id": src["id"], "char_count": int(src["chars"])}
+            continue
+        # No evidence_source — figure out why
+        if "linkedin.com" in url.lower():
+            note = "LinkedIn's robots.txt blocks automated profile fetches. Paste the visible profile text below or upload a LinkedIn data export — we'll run the LLM extractor on it."
+            out[field] = {"url": url, "ingested": False, "status": "blocked_by_robots",
+                          "evidence_source_id": None, "char_count": 0,
+                          "remediation": note}
+        else:
+            out[field] = {"url": url, "ingested": False, "status": "not_fetched",
+                          "evidence_source_id": None, "char_count": 0,
+                          "remediation": "Fetch hasn't run yet, or the page returned empty. Use the VAULT UPDATE drawer to paste text directly."}
+    return {"ok": True, "data": out}
+
+
 @router.post("/profile/snapshot")
 def post_profile_snapshot() -> dict:
     """Generate the user's career snapshot — who they are, what they do,

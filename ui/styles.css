@@ -3021,3 +3021,48 @@ form.autopilot-running .form-actions {
 .row-action-dismiss:hover {
   background: var(--accent-soft);
 }
+
+/* ====== URL INGEST STATUS + LINKEDIN PASTE ====== */
+.url-ingest-card .url-ingest-list {
+  list-style: none;
+  padding: 0;
+  margin: var(--s-3) 0;
+}
+.url-row {
+  display: grid;
+  grid-template-columns: 100px 1fr auto;
+  grid-template-areas:
+    "label url status"
+    "hint  hint hint";
+  gap: var(--s-2) var(--s-3);
+  align-items: center;
+  padding: var(--s-3) var(--s-3);
+  border-left: 3px solid var(--hair-strong);
+  margin-bottom: var(--s-2);
+  background: var(--card-2);
+  font-family: var(--mono);
+  font-size: var(--fs-small);
+}
+.url-row-ok      { border-left-color: var(--positive); background: var(--positive-soft); }
+.url-row-blocked { border-left-color: var(--accent);   background: var(--accent-soft); }
+.url-row-pending { border-left-color: var(--muted); }
+.url-row-label  { grid-area: label; font-weight: 700; letter-spacing: 0.08em; }
+.url-row-url    { grid-area: url; word-break: break-all; text-decoration: underline; }
+.url-row-hint   { grid-area: hint; }
+.linkedin-paste-block {
+  margin-top: var(--s-4);
+  padding: var(--s-4);
+  border: 2px solid var(--accent);
+  background: var(--bg);
+}
+.linkedin-paste-block h4 {
+  margin: 0 0 var(--s-2);
+  font-family: var(--mono);
+  letter-spacing: 0.08em;
+}
+.linkedin-paste-block textarea {
+  width: 100%;
+  font-family: var(--mono);
+  padding: var(--s-3);
+  border: var(--border-thin);
+}
