@@ -109,6 +109,7 @@ ROUTER_MODULES = [
     "calendar",
     "settings",
     "llm",
+    "llm_rerank",
     "github",
     "urls",
     "scheduler",
@@ -126,6 +127,8 @@ ROUTER_MODULES = [
     "connections",
     "velocity",
     "negotiation",
+    "offer_analysis",
+    "interview_prep",
     "followups",
     # ---- Operational ----
     "updates",

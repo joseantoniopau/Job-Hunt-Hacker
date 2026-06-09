@@ -14,8 +14,9 @@ import time
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Body, File, Form, HTTPException, Request, UploadFile
 
+from ..config import settings
 from ..db import get_conn, row_to_dict, audit
 from ..models.schemas import UserProfileIn, OK
 from ..security.rate_limit import rate_limit
@@ -125,10 +126,28 @@ def put_profile(body: UserProfileIn) -> OK:
     untouched. Previously every PUT clobbered every column with whatever
     happened to be in the request body — saving the weekly availability
     grid wiped name/email/target_titles/everything else.
+
+    Side effect: when `linkedin_url`, `github_url`, or `portfolio_url`
+    changes from what was previously stored, we auto-enqueue a fetch +
+    LLM re-extract for the new URL so the vault always reflects what the
+    profile says. Failures (SSRF block, offline, robots.txt) are logged
+    but do NOT fail the profile update — the URL is still persisted.
     """
     payload = body.model_dump(exclude_unset=True)
     if not payload:
         return OK(detail="no fields supplied")
+
+    conn = get_conn()
+    # Capture pre-change URL values so we know what to auto-ingest.
+    prev_row = conn.execute(
+        "SELECT linkedin_url, github_url, portfolio_url FROM user_profile WHERE id = 1"
+    ).fetchone()
+    prev_urls = {
+        "linkedin_url": (prev_row["linkedin_url"] or "").strip() if prev_row else "",
+        "github_url": (prev_row["github_url"] or "").strip() if prev_row else "",
+        "portfolio_url": (prev_row["portfolio_url"] or "").strip() if prev_row else "",
+    }
+
     cols = []
     vals = []
     for k, v in payload.items():
@@ -144,10 +163,86 @@ def put_profile(body: UserProfileIn) -> OK:
     cols.append("updated_at = ?")
     vals.append(time.time())
     sql = f"UPDATE user_profile SET {', '.join(cols)} WHERE id = 1"
-    conn = get_conn()
     conn.execute(sql, vals)
     audit("profile_update", "user_profile", 1, fields=sorted(payload.keys()))
-    return OK(detail=f"profile updated: {len(payload)} field(s)")
+
+    # ----- Always-on URL ingest -----------------------------------------
+    url_field_to_type = {
+        "linkedin_url": "linkedin",
+        "github_url": "github",
+        "portfolio_url": "portfolio",
+    }
+    ingested: list[dict] = []
+    for field, source_type in url_field_to_type.items():
+        if field not in payload:
+            continue
+        new_val = (payload.get(field) or "")
+        if not isinstance(new_val, str):
+            continue
+        new_val = new_val.strip()
+        if not new_val:
+            continue
+        if new_val == prev_urls.get(field):
+            continue
+        try:
+            from ..services import url_ingestion, career_vault, evidence_extractor
+            fetched = url_ingestion.fetch_url(new_val)
+            if "error" in fetched:
+                log.info("profile URL ingest skipped (%s): %s",
+                         new_val, fetched["error"])
+                ingested.append({"field": field, "ok": False,
+                                 "error": fetched["error"]})
+                continue
+            text = (fetched.get("text") or "").strip()
+            if not text:
+                ingested.append({"field": field, "ok": False,
+                                 "error": "no readable text"})
+                continue
+            source_id = career_vault.add_source(
+                source_type=source_type,
+                title=fetched.get("title") or new_val,
+                url=fetched.get("url") or new_val,
+                raw_text=text,
+                parsed_json={"content_type": fetched.get("content_type"),
+                             "fetched_at": fetched.get("fetched_at")},
+            )
+            # LLM extract preferred; fall back to deterministic when LLM
+            # isn't configured or the call fails.
+            llm_run_id = None
+            claims_inserted = 0
+            tried_llm = False
+            try:
+                from ..llm import get_llm
+                from ..llm.template_provider import TemplateProvider
+                from ..services import llm_vault_reingest
+                if not isinstance(get_llm(), TemplateProvider):
+                    tried_llm = True
+                    res = llm_vault_reingest.reingest_source_with_llm(int(source_id))
+                    if res.get("ok"):
+                        llm_run_id = res.get("llm_run_id")
+                        claims_inserted = res.get("claims_inserted")
+            except Exception as exc:  # noqa: BLE001
+                log.warning("LLM reingest after URL ingest failed: %s", exc)
+            if claims_inserted == 0 and not tried_llm:
+                claims = evidence_extractor.extract_claims(int(source_id), text, source_type)
+                career_vault.add_claims(int(source_id), claims)
+                claims_inserted = len(claims)
+            ingested.append({
+                "field": field,
+                "ok": True,
+                "source_id": int(source_id),
+                "claims_inserted": int(claims_inserted),
+                "llm_run_id": llm_run_id,
+            })
+        except Exception as exc:  # noqa: BLE001
+            log.warning("auto URL ingest failed for %s: %s", field, exc)
+            ingested.append({"field": field, "ok": False,
+                             "error": f"{type(exc).__name__}: {exc}"})
+
+    detail = f"profile updated: {len(payload)} field(s)"
+    if ingested:
+        detail += f"; auto-ingested {sum(1 for r in ingested if r.get('ok'))} URL(s)"
+    return OK(detail=detail, data={"ingested_urls": ingested} if ingested else None)
 
 
 # ----- infer endpoint -----
@@ -296,13 +391,325 @@ async def infer_profile(
         "sources_used": sources_used,
         "notes": notes,
     }
+
+    # ---- LLM inference + human-gate proposal ----
+    # Run the LLM extractor when a provider is available. The deterministic
+    # draft remains the response's primary payload (back-compat); the LLM
+    # output is added as a side-channel for the human review gate.
+    llm_fields: dict[str, Any] | None = None
+    llm_run_id: int | None = None
+    llm_error: str | None = None
+    differences: dict[str, dict[str, Any]] = {}
+    proposal_id: int | None = None
+
+    resume_text = (resume_data or {}).get("_text", "") or ""
+    linkedin_raw = (linkedin_data or {}).get("raw_text", "") or ""
+
+    provider_available = (settings.llm_provider or "auto").lower() != "template"
+    if provider_available and (resume_text or linkedin_raw):
+        try:
+            from ..services.llm_profile_inference import infer_with_llm
+            llm_result = infer_with_llm(
+                resume_text=resume_text,
+                linkedin_text=linkedin_raw,
+                target_type="profile",
+                target_id=1,
+            )
+            if llm_result.get("ok"):
+                llm_fields = llm_result.get("fields") or {}
+                llm_run_id = int(llm_result.get("llm_run_id") or -1)
+            else:
+                llm_error = llm_result.get("error") or "llm inference failed"
+                llm_run_id = int(llm_result.get("llm_run_id") or -1)
+                notes.append(f"llm inference: {llm_error}")
+        except Exception as exc:  # noqa: BLE001
+            log.warning("llm inference failed: %s", exc)
+            llm_error = str(exc)
+            notes.append(f"llm inference exception: {exc}")
+
+    # Source label for the proposal row. Resume wins when both supplied.
+    if resume_file is not None:
+        proposal_source = "resume"
+    elif linkedin_text or linkedin_html:
+        proposal_source = "linkedin"
+    elif linkedin_url:
+        proposal_source = "linkedin_url"
+    else:
+        proposal_source = "mixed"
+
+    # Build the side-by-side differences map (only fields where the two
+    # parsers actually disagree, including the case where one is absent).
+    deterministic_fields_for_diff = {k: inferred_fields.get(k) for k in inferred_fields}
+    if llm_fields is not None:
+        all_keys = set(deterministic_fields_for_diff.keys()) | set(llm_fields.keys())
+        for k in sorted(all_keys):
+            d = deterministic_fields_for_diff.get(k)
+            l = llm_fields.get(k)
+            if _values_equal(d, l):
+                continue
+            differences[k] = {"deterministic": d, "llm": l}
+
+    # Persist a proposal row whenever we have at least one signal worth
+    # remembering — even a deterministic-only run. The human reviewer can
+    # then audit later, or the autopilot UI can surface it.
+    if (inferred_fields or llm_fields) and (resume_text or linkedin_raw):
+        try:
+            with get_conn() as conn:
+                cur = conn.execute(
+                    """INSERT INTO profile_proposal
+                       (created_at, source, deterministic_json, llm_json,
+                        llm_run_id, status)
+                       VALUES (?, ?, ?, ?, ?, 'pending')""",
+                    (
+                        time.time(),
+                        proposal_source,
+                        json.dumps(inferred_fields, default=str),
+                        json.dumps(llm_fields) if llm_fields is not None else None,
+                        llm_run_id if llm_run_id and llm_run_id > 0 else None,
+                    ),
+                )
+                proposal_id = int(cur.lastrowid)
+            audit("profile_proposal_created", "profile_proposal", proposal_id,
+                  source=proposal_source,
+                  deterministic_keys=sorted(inferred_fields.keys()),
+                  llm_keys=sorted((llm_fields or {}).keys()),
+                  differences=sorted(differences.keys()))
+        except Exception as exc:  # noqa: BLE001
+            log.warning("failed to persist profile_proposal: %s", exc)
+            notes.append(f"proposal save failed: {exc}")
+
     # Embed the meta INSIDE data so the standard `{ok, data:{...}}` envelope
     # holds. Keep the top-level keys for backward-compat with v0.1 callers.
+    proposal_meta: dict[str, Any] = {}
+    if proposal_id is not None:
+        proposal_meta["proposal_id"] = proposal_id
+    if llm_fields is not None:
+        proposal_meta["llm"] = llm_fields
+    if llm_run_id and llm_run_id > 0:
+        proposal_meta["llm_run_id"] = llm_run_id
+    if llm_error:
+        proposal_meta["llm_error"] = llm_error
+    if differences:
+        proposal_meta["differences"] = differences
+    proposal_meta["deterministic"] = dict(inferred_fields)
+
     return {
         "ok": True,
         "data": {**draft, **meta},
         **meta,
+        **proposal_meta,
     }
+
+
+def _values_equal(a: Any, b: Any) -> bool:
+    """Tolerant equality for comparing deterministic vs LLM field values.
+
+    - Lists are compared as lowercased multisets (order-insensitive).
+    - Strings compared case-insensitively after stripping.
+    - None / empty / missing all collapse to a single 'absent' state.
+    """
+    a_absent = a is None or a == "" or a == [] or a == {}
+    b_absent = b is None or b == "" or b == [] or b == {}
+    if a_absent and b_absent:
+        return True
+    if a_absent or b_absent:
+        return False
+    if isinstance(a, list) and isinstance(b, list):
+        return sorted(str(x).strip().lower() for x in a) == sorted(str(x).strip().lower() for x in b)
+    if isinstance(a, str) and isinstance(b, str):
+        return a.strip().lower() == b.strip().lower()
+    return a == b
+
+
+# ----- proposal endpoints (human review gate) ---------------------------
+
+def _proposal_row(pid: int) -> dict | None:
+    row = get_conn().execute(
+        "SELECT * FROM profile_proposal WHERE id = ?", (int(pid),),
+    ).fetchone()
+    if not row:
+        return None
+    d = row_to_dict(row) or {}
+    # row_to_dict already auto-decodes *_json columns, but defensively
+    # parse here too in case the column was stored as a non-decodable type.
+    def _coerce(v: Any) -> Any:
+        if v is None:
+            return None
+        if isinstance(v, (dict, list)):
+            return v
+        if isinstance(v, str) and v.strip():
+            try:
+                return json.loads(v)
+            except Exception:
+                return None
+        return None
+    d["deterministic"] = _coerce(d.get("deterministic_json")) or {}
+    d["llm"] = _coerce(d.get("llm_json")) or {}
+    d["accepted_fields"] = _coerce(d.get("accepted_fields_json")) or {}
+    # Compute differences server-side so the client doesn't have to.
+    det = d.get("deterministic") or {}
+    llm = d.get("llm") or {}
+    diffs: dict[str, dict[str, Any]] = {}
+    for k in sorted(set(det.keys()) | set(llm.keys())):
+        dv = det.get(k)
+        lv = llm.get(k)
+        if not _values_equal(dv, lv):
+            diffs[k] = {"deterministic": dv, "llm": lv}
+    d["differences"] = diffs
+    return d
+
+
+@router.get("/profile/proposals")
+def list_proposals(limit: int = 20, status: str = "pending") -> dict:
+    """List recent proposals, newest first. Default to pending only."""
+    limit = max(1, min(int(limit), 100))
+    if status:
+        rows = get_conn().execute(
+            """SELECT id, created_at, source, llm_run_id, status, applied_at
+               FROM profile_proposal
+               WHERE status = ?
+               ORDER BY id DESC LIMIT ?""",
+            (status, limit),
+        ).fetchall()
+    else:
+        rows = get_conn().execute(
+            """SELECT id, created_at, source, llm_run_id, status, applied_at
+               FROM profile_proposal
+               ORDER BY id DESC LIMIT ?""",
+            (limit,),
+        ).fetchall()
+    out = []
+    for r in rows:
+        out.append({
+            "id": r["id"],
+            "created_at": r["created_at"],
+            "source": r["source"],
+            "llm_run_id": r["llm_run_id"],
+            "status": r["status"],
+            "applied_at": r["applied_at"],
+        })
+    return {"ok": True, "data": {"proposals": out, "count": len(out)}}
+
+
+@router.get("/profile/proposals/{pid}")
+def get_proposal(pid: int) -> dict:
+    d = _proposal_row(pid)
+    if not d:
+        raise HTTPException(404, "proposal not found")
+    return {"ok": True, "data": d}
+
+
+@router.post("/profile/proposals/{pid}/accept")
+def accept_proposal(pid: int, body: dict = Body(default={})) -> dict:
+    """Body: {accepted_fields: {field_name: "deterministic" | "llm" | <raw value>}}
+
+    Builds the final field set from the user's choices, writes it to
+    `user_profile`, marks the proposal applied, and returns the updated
+    profile row.
+    """
+    d = _proposal_row(pid)
+    if not d:
+        raise HTTPException(404, "proposal not found")
+    if d.get("status") == "applied":
+        raise HTTPException(409, "proposal already applied")
+
+    accepted_choices = (body or {}).get("accepted_fields") or {}
+    if not isinstance(accepted_choices, dict):
+        raise HTTPException(400, "accepted_fields must be an object")
+
+    det = d.get("deterministic") or {}
+    llm = d.get("llm") or {}
+
+    final_fields: dict[str, Any] = {}
+    resolved: dict[str, str] = {}  # field -> source label for audit
+    for field, choice in accepted_choices.items():
+        if isinstance(choice, str) and choice in ("deterministic", "llm"):
+            src = choice
+            val = det.get(field) if src == "deterministic" else llm.get(field)
+            if val is None:
+                continue
+            final_fields[field] = val
+            resolved[field] = src
+        else:
+            # Raw value (user-edited override)
+            final_fields[field] = choice
+            resolved[field] = "manual"
+
+    # Validate against UserProfileIn so we only update real columns and
+    # benefit from its coercion (e.g. comma-string → list for list fields).
+    try:
+        # Coerce list fields from CSV string if the UI sent them as such
+        for k in _LIST_FIELDS:
+            v = final_fields.get(k)
+            if isinstance(v, str):
+                final_fields[k] = [s.strip() for s in v.split(",") if s.strip()]
+        candidate = UserProfileIn(**{k: v for k, v in final_fields.items()
+                                     if k in UserProfileIn.model_fields})
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(400, f"validation failed: {exc}")
+
+    payload = candidate.model_dump(exclude_unset=True)
+    # Only write keys the user actually chose — exclude_unset above + the
+    # explicit filter below makes this idempotent for partial accepts.
+    payload = {k: v for k, v in payload.items() if k in final_fields}
+
+    cols: list[str] = []
+    vals: list[Any] = []
+    for k, v in payload.items():
+        if k in _LIST_FIELDS:
+            cols.append(f"{k} = ?")
+            vals.append(json.dumps(v or []))
+        elif k in _JSON_FIELDS:
+            cols.append(f"{k} = ?")
+            vals.append(json.dumps(v or {}))
+        else:
+            cols.append(f"{k} = ?")
+            vals.append(v)
+    if cols:
+        cols.append("updated_at = ?")
+        vals.append(time.time())
+        sql = f"UPDATE user_profile SET {', '.join(cols)} WHERE id = 1"
+        get_conn().execute(sql, vals)
+
+    now = time.time()
+    get_conn().execute(
+        """UPDATE profile_proposal
+           SET status = 'applied', applied_at = ?, accepted_fields_json = ?
+           WHERE id = ?""",
+        (now, json.dumps(resolved), int(pid)),
+    )
+    audit("profile_proposal_accepted", "profile_proposal", int(pid),
+          fields=sorted(payload.keys()), resolved=resolved)
+
+    new_row = get_conn().execute(
+        "SELECT * FROM user_profile WHERE id = 1"
+    ).fetchone()
+    return {
+        "ok": True,
+        "data": {
+            "proposal_id": int(pid),
+            "applied_fields": sorted(payload.keys()),
+            "resolved": resolved,
+            "profile": row_to_dict(new_row) or {},
+        },
+    }
+
+
+@router.post("/profile/proposals/{pid}/reject")
+def reject_proposal(pid: int) -> dict:
+    row = get_conn().execute(
+        "SELECT id, status FROM profile_proposal WHERE id = ?", (int(pid),),
+    ).fetchone()
+    if not row:
+        raise HTTPException(404, "proposal not found")
+    if row["status"] == "applied":
+        raise HTTPException(409, "cannot reject an applied proposal")
+    get_conn().execute(
+        "UPDATE profile_proposal SET status = 'rejected' WHERE id = ?",
+        (int(pid),),
+    )
+    audit("profile_proposal_rejected", "profile_proposal", int(pid))
+    return {"ok": True, "data": {"proposal_id": int(pid), "status": "rejected"}}
 
 
 # ----- helpers -----

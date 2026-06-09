@@ -31,6 +31,7 @@ from typing import Any
 
 from fastapi import APIRouter, File, Form, Request, UploadFile
 
+from ..config import settings
 from ..db import audit, get_conn
 from ..security.rate_limit import rate_limit
 
@@ -160,6 +161,39 @@ async def autopilot_start(
         from ..services.evidence_extractor import extract_claims
         sources_added = 0
         claims_extracted = 0
+        llm_upgraded_sources: list[dict] = []
+
+        # Decide once whether to attempt LLM upgrade after deterministic
+        # extraction. We import here so a missing dep can't crash autopilot.
+        llm_available = False
+        try:
+            from ..llm import get_llm
+            from ..llm.template_provider import TemplateProvider
+            llm_available = not isinstance(get_llm(), TemplateProvider)
+        except Exception:
+            llm_available = False
+
+        def _maybe_llm_upgrade(sid: int, label: str) -> None:
+            """After deterministic claims land, swap them for the strict,
+            source-span-verified LLM claims when an LLM is available.
+
+            Failures are non-fatal — the deterministic claims stay.
+            """
+            if not llm_available:
+                return
+            try:
+                from ..services import llm_vault_reingest
+                res = llm_vault_reingest.reingest_source_with_llm(int(sid))
+                if res.get("ok"):
+                    llm_upgraded_sources.append({
+                        "source_id": int(sid),
+                        "label": label,
+                        "claims_inserted": int(res.get("claims_inserted") or 0),
+                        "claims_dropped_unverified": int(res.get("claims_dropped_unverified") or 0),
+                        "llm_run_id": res.get("llm_run_id"),
+                    })
+            except Exception as exc:  # noqa: BLE001
+                log.warning("autopilot LLM upgrade failed for %s: %s", label, exc)
 
         # Resume bytes — re-read from the upload's file pointer.
         if resume_file is not None:
@@ -180,6 +214,7 @@ async def autopilot_start(
                 career_vault.add_claims(sid, claims)
                 sources_added += 1
                 claims_extracted += len(claims)
+                _maybe_llm_upgrade(sid, "resume")
 
         if linkedin_text and linkedin_text.strip():
             sid = career_vault.add_source(
@@ -191,11 +226,16 @@ async def autopilot_start(
             career_vault.add_claims(sid, claims)
             sources_added += 1
             claims_extracted += len(claims)
+            _maybe_llm_upgrade(sid, "linkedin")
 
         summary["vault"]["sources_added"] = sources_added
         summary["vault"]["claims_extracted"] = claims_extracted
+        summary["vault"]["llm_upgraded"] = llm_upgraded_sources
+        detail = f"{sources_added} sources, {claims_extracted} claims"
+        if llm_upgraded_sources:
+            detail += f", {len(llm_upgraded_sources)} upgraded by LLM"
         summary["steps"].append({"name": "vault_populated", "status": "ok",
-                                 "detail": f"{sources_added} sources, {claims_extracted} claims"})
+                                 "detail": detail})
     except Exception as exc:  # noqa: BLE001
         log.warning("autopilot vault step failed: %s", exc)
         summary["steps"].append({"name": "vault_populated", "status": "error",
@@ -325,6 +365,39 @@ async def autopilot_start(
     except Exception as exc:  # noqa: BLE001
         log.warning("autopilot scoring step failed: %s", exc)
         summary["steps"].append({"name": "scoring_complete", "status": "error",
+                                 "detail": f"{type(exc).__name__}: {exc}"})
+
+    # 4b. LLM second-pass scoring (semantic rerank) -----------------------
+    # Only runs when a real LLM is configured. Template-provider users get
+    # a clean no-op so Autopilot still finishes. Bounded to top 30 to keep
+    # cold local-model runs under ~10 min in the worst case.
+    summary["llm_rerank"] = {"reranked": 0, "errors": 0, "skipped": False}
+    try:
+        if (settings.llm_provider or "").lower() == "template":
+            summary["llm_rerank"]["skipped"] = True
+            summary["steps"].append({
+                "name": "llm_rerank_complete", "status": "skipped",
+                "detail": "no LLM provider configured (template fallback)",
+            })
+        else:
+            from ..matching.llm_rerank import rerank_top_n
+            rer = rerank_top_n(top_n=30)
+            summary["llm_rerank"]["reranked"] = int(rer.get("reranked", 0))
+            summary["llm_rerank"]["errors"] = int(rer.get("errors", 0))
+            summary["llm_rerank"]["skipped"] = bool(rer.get("skipped_no_provider", False))
+            summary["llm_rerank"]["elapsed_ms"] = int(rer.get("elapsed_ms", 0))
+            status = "ok" if not summary["llm_rerank"]["skipped"] else "skipped"
+            detail = (
+                f"reranked={summary['llm_rerank']['reranked']} "
+                f"errors={summary['llm_rerank']['errors']}"
+            )
+            if summary["llm_rerank"]["skipped"]:
+                detail = "no real LLM provider — template fallback"
+            summary["steps"].append({"name": "llm_rerank_complete",
+                                     "status": status, "detail": detail})
+    except Exception as exc:  # noqa: BLE001
+        log.warning("autopilot llm_rerank step failed: %s", exc)
+        summary["steps"].append({"name": "llm_rerank_complete", "status": "error",
                                  "detail": f"{type(exc).__name__}: {exc}"})
 
     # 5. Pick the top jobs by score for tailoring + packets ---------------

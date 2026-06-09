@@ -159,7 +159,7 @@
   }
 
   // ----- page routing -----
-  const PAGES = ['landing','setup','vault','dashboard','resume','pipeline','inbox','calendar','intel','network','settings'];
+  const PAGES = ['landing','setup','vault','dashboard','resume','pipeline','inbox','calendar','interview','intel','network','offers','settings'];
   function switchPage(name) {
     if (!PAGES.includes(name)) name = 'landing';
     state.page = name;
@@ -177,7 +177,9 @@
     if (name === 'inbox')     loadInbox();
     if (name === 'calendar')  { renderAvailGrid(); loadCalendarEvents(); }
     if (name === 'intel')     loadIntel();
+    if (name === 'interview') loadInterview();
     if (name === 'network')   loadNetwork();
+    if (name === 'offers')    loadOffers();
     if (name === 'settings')  loadSettings();
   }
   function bindRouting() {
@@ -382,6 +384,10 @@
       // Refresh background pill + nav stats
       await loadAutopilotPill();
       bootStatus();
+      // Autopilot's profile-inference step may have produced a proposal
+      // that's waiting on a human-review decision. Refresh the pill list
+      // so the user notices it from the Setup page.
+      refreshProposalsPills();
     });
 
     loadAutopilotPill();
@@ -606,6 +612,12 @@
         ? `Profile pre-filled (${fieldCount} fields). Review and save.`
         : 'No fields inferred — paste more text.',
         fieldCount > 0 ? 'success' : 'warn');
+
+      // Human review gate: if the deterministic parser and the LLM
+      // disagree on any field, surface the side-by-side picker so the
+      // user resolves it before anything is committed to the profile.
+      maybeOpenProposalGate(r);
+      refreshProposalsPills();
     });
 
     $('#infer-clear').addEventListener('click', () => {
@@ -1035,6 +1047,7 @@
       }
     });
     $('#reload-jobs').addEventListener('click', loadJobs);
+    bindLLMRerankUI();
     $('#jd-close').addEventListener('click', () => $('#job-detail').classList.add('hidden'));
     $('#jd-tailor').addEventListener('click', () => state.selectedJob && tailorForJob(state.selectedJob.id));
     $('#jd-cover').addEventListener('click', () => state.selectedJob && coverForJob(state.selectedJob.id));
@@ -1045,37 +1058,355 @@
     $('#jd-rescore').addEventListener('click', () => state.selectedJob && rescoreJob(state.selectedJob.id));
     $('#jd-archive').addEventListener('click', () => state.selectedJob && archiveJob(state.selectedJob.id));
   }
+  // LLM scores side-dict, keyed by job_id, loaded alongside /api/jobs.
+  state.llmScores = {};
+  // Persisted sort choice: deterministic (default) or llm.
+  // The user explicitly opts into LLM ranking — the deterministic score
+  // stays authoritative until they flip the toggle.
+  function getSortMode() {
+    try {
+      const v = localStorage.getItem('jhh.dashboard.sortMode');
+      return v === 'llm' ? 'llm' : 'deterministic';
+    } catch (_) { return 'deterministic'; }
+  }
+  function setSortMode(mode) {
+    try { localStorage.setItem('jhh.dashboard.sortMode', mode); } catch (_) {}
+  }
+
   async function loadJobs() {
-    const r = await api.get('/api/jobs?limit=200', { silent: true });
-    const jobs = (r.ok && (r.data || [])) || [];
+    // Fire both requests in parallel — the LLM-scores call is cheap and
+    // independent. We merge them into a single render pass.
+    const [jobsRes, scoresRes] = await Promise.all([
+      api.get('/api/jobs?limit=200', { silent: true }),
+      api.get('/api/scoring/llm-scores?limit=500', { silent: true }),
+    ]);
+    const jobs = (jobsRes.ok && (jobsRes.data || [])) || [];
     state.jobs = jobs;
+    const llmScores = {};
+    const llmList = (scoresRes.ok && (scoresRes.data || [])) || [];
+    for (const s of llmList) llmScores[s.job_id] = s;
+    state.llmScores = llmScores;
+
+    renderJobsTable();
+    updateSortToggleUI();
+  }
+
+  function renderJobsTable() {
     const body = $('#results-table tbody');
+    if (!body) return;
     body.innerHTML = '';
-    $('#results-count').textContent = `${jobs.length} stored`;
+    const jobs = state.jobs || [];
+    const llmScores = state.llmScores || {};
+    const llmCount = Object.keys(llmScores).length;
+    const countEl = $('#results-count');
+    if (countEl) {
+      countEl.textContent =
+        `${jobs.length} stored · ${llmCount} LLM-scored`;
+    }
     if (!jobs.length) {
-      body.appendChild(el('tr', {}, el('td', { colspan: 10, class: 'empty', text: 'No jobs yet — run a search.' })));
+      body.appendChild(el('tr', {}, el('td', { colspan: 12, class: 'empty', text: 'No jobs yet — run a search.' })));
       return;
     }
-    // sort by score desc
-    const sorted = jobs.slice().sort((a, b) => (b.score ?? -1) - (a.score ?? -1));
+    const mode = getSortMode();
+    const sorted = jobs.slice().sort((a, b) => {
+      if (mode === 'llm') {
+        // Use semantic_score (0-1) scaled to 0-100 for comparison. Jobs
+        // without an LLM score sort to the bottom — that's the honest
+        // signal: the model hasn't weighed in yet.
+        const sa = llmScores[a.id]?.semantic_score;
+        const sb = llmScores[b.id]?.semantic_score;
+        const na = sa == null ? -1 : sa * 100;
+        const nb = sb == null ? -1 : sb * 100;
+        if (nb !== na) return nb - na;
+      }
+      return (b.score ?? -1) - (a.score ?? -1);
+    });
     sorted.forEach((j, i) => {
       const score = j.score ?? null;
-      const tr = el('tr', { class: 'clickable', onclick: () => openJobDetail(j) }, [
+      const llmRow = llmScores[j.id];
+      const tr = el('tr', { class: 'clickable', 'data-job-id': j.id, onclick: (e) => {
+        // Don't open the detail panel when the user clicks a row button.
+        if (e.target.closest('.row-action-btn')) return;
+        openJobDetail(j);
+      } }, [
         el('td', { text: String(i + 1) }),
         el('td', { text: safeText(j.title || '—') }),
         el('td', { text: safeText(j.company || '—') }),
         el('td', { text: safeText(j.location || (j.is_remote ? 'Remote' : '—')) }),
         el('td', {}, score == null ? document.createTextNode('—')
           : el('span', { class: 'score-chip ' + scoreClass(score), text: String(Math.round(score)) })),
+        el('td', {}, renderLLMScoreCell(j.id, llmRow)),
         el('td', { text: fmtSalary(j.salary_min, j.salary_max, j.salary_currency || 'USD') }),
         el('td', { text: fmtRel(j.posted_at || j.created_at) }),
         el('td', { text: safeText(j.source || '—') }),
         el('td', {}, renderBadges(j)),
+        el('td', {}, renderRowActions(j, llmRow)),
         el('td', {}, j.url ? el('a', { href: j.url, target: '_blank', rel: 'noopener', text: 'open' }) : document.createTextNode('—')),
       ]);
       body.appendChild(tr);
     });
   }
+
+  function renderLLMScoreCell(jobId, llmRow) {
+    if (!llmRow || llmRow.semantic_score == null) {
+      return el('span', { class: 'llm-score-chip llm-none', text: '—',
+        title: 'No LLM semantic score yet. Click 🔍 to learn more or RESCORE to compute.' });
+    }
+    const n = Math.round(Number(llmRow.semantic_score) * 100);
+    const cls = n >= 75 ? 'llm-high' : n >= 45 ? 'llm-mid' : 'llm-low';
+    const action = (llmRow.recommended_action || '').toUpperCase();
+    return el('span', {
+      class: 'llm-score-chip ' + cls,
+      text: String(n),
+      title: action ? `LLM ${n}/100 · ${action}` : `LLM ${n}/100`,
+    });
+  }
+
+  function renderRowActions(j, llmRow) {
+    const wrap = el('span', { class: 'row-actions' });
+    // 🔍 explain — opens the LLM rerank modal for this job
+    const explainBtn = el('button', {
+      type: 'button',
+      class: 'row-action-btn row-action-explain',
+      title: 'View LLM fit summary, strengths, gaps, red flags',
+      'aria-label': 'Explain LLM score',
+      text: '🔍',
+      onclick: (e) => {
+        e.stopPropagation();
+        openLLMRerankModal(j.id);
+      },
+    });
+    wrap.appendChild(explainBtn);
+    // RESCORE — POST /api/scoring/llm-rerank/{id}
+    const rescoreBtn = el('button', {
+      type: 'button',
+      class: 'row-action-btn',
+      title: 'Re-run LLM second-pass scoring for this job (10–60s).',
+      text: 'RESCORE',
+      onclick: async (e) => {
+        e.stopPropagation();
+        await rescoreOneWithLLM(j.id, rescoreBtn);
+      },
+    });
+    wrap.appendChild(rescoreBtn);
+    return wrap;
+  }
+
+  function updateSortToggleUI() {
+    const mode = getSortMode();
+    $$('.sort-toggle-btn').forEach((b) => {
+      const m = b.getAttribute('data-sort-mode');
+      const active = m === mode;
+      b.classList.toggle('is-active', active);
+      b.classList.toggle('btn-secondary', active);
+      b.classList.toggle('btn-ghost', !active);
+    });
+  }
+
+  function bindLLMRerankUI() {
+    $$('.sort-toggle-btn').forEach((b) => {
+      b.addEventListener('click', () => {
+        const mode = b.getAttribute('data-sort-mode');
+        setSortMode(mode);
+        updateSortToggleUI();
+        renderJobsTable();
+      });
+    });
+    const topBtn = $('#llm-rerank-top-btn');
+    if (topBtn) topBtn.addEventListener('click', rerankTop30WithLLM);
+    const closeBtn = $('#llm-rerank-modal-close');
+    if (closeBtn) closeBtn.addEventListener('click', () => {
+      const m = $('#llm-rerank-modal');
+      if (m) m.classList.add('hidden');
+    });
+    const viewRunBtn = $('#llm-rerank-view-run');
+    if (viewRunBtn) viewRunBtn.addEventListener('click', () => {
+      const runId = viewRunBtn.getAttribute('data-run-id');
+      if (!runId) { toast('No LLM run id on this score yet.', 'error'); return; }
+      // Close the rerank modal first so the run modal sits on top cleanly.
+      const m = $('#llm-rerank-modal');
+      if (m) m.classList.add('hidden');
+      openLLMRunModal(Number(runId));
+    });
+  }
+
+  async function rescoreOneWithLLM(jobId, btn) {
+    if (!btn) return;
+    const original = btn.textContent;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="row-action-spinner" aria-hidden="true"></span>';
+    toast('LLM rescoring job ' + jobId + '… (10–60s)');
+    try {
+      const r = await api.post('/api/scoring/llm-rerank/' + jobId, {}, { silent: true });
+      if (r.ok && r.data) {
+        const persisted = r.data.data || r.data;
+        state.llmScores = state.llmScores || {};
+        // Merge fresh score into the side-dict so the chip updates without
+        // a full reload. Server returns the persisted row shape.
+        if (persisted && persisted.job_id) {
+          state.llmScores[persisted.job_id] = {
+            ...state.llmScores[persisted.job_id],
+            ...persisted,
+            strengths: persisted.strengths || [],
+            gaps: persisted.gaps || [],
+            red_flags: persisted.red_flags || [],
+          };
+        }
+        toast('LLM rescore complete.', 'success');
+        renderJobsTable();
+      } else {
+        const err = r.error || (r.data && (r.data.error || (r.data.data && r.data.data.error))) || 'unknown error';
+        toast('LLM rescore failed: ' + err, 'error');
+      }
+    } catch (e) {
+      toast('LLM rescore network error: ' + e.message, 'error');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = original;
+    }
+  }
+
+  let _rerankBatchInProgress = false;
+  async function rerankTop30WithLLM() {
+    if (_rerankBatchInProgress) {
+      toast('A batch rerank is already running.', 'error');
+      return;
+    }
+    if (!confirm('Run LLM second-pass scoring on the top 30 deterministic-scored jobs?\n\nThis can take 1–10 minutes (uses your local LLM).')) return;
+    _rerankBatchInProgress = true;
+    const btn = $('#llm-rerank-top-btn');
+    const status = $('#llm-rerank-status');
+    const original = btn.textContent;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="row-action-spinner" aria-hidden="true"></span> RUNNING…';
+    if (status) status.textContent = 'reranking top 30… check the LLM Activity panel for live progress.';
+    // Long poll: refresh the score side-dict every 12s so the table updates
+    // as jobs finish. The POST blocks until the batch completes — we poll
+    // alongside it for live UX.
+    const pollInterval = setInterval(async () => {
+      try {
+        const r = await api.get('/api/scoring/llm-scores?limit=500', { silent: true });
+        if (r.ok) {
+          const llmScores = {};
+          for (const s of (r.data || [])) llmScores[s.job_id] = s;
+          state.llmScores = llmScores;
+          renderJobsTable();
+        }
+      } catch (_) {}
+    }, 12000);
+    try {
+      const r = await api.post('/api/scoring/llm-rerank', { top_n: 30 }, { silent: true });
+      clearInterval(pollInterval);
+      // Always refresh once at the end.
+      const sres = await api.get('/api/scoring/llm-scores?limit=500', { silent: true });
+      if (sres.ok) {
+        const llmScores = {};
+        for (const s of (sres.data || [])) llmScores[s.job_id] = s;
+        state.llmScores = llmScores;
+        renderJobsTable();
+      }
+      if (r.ok && r.data) {
+        const d = r.data.data || r.data;
+        toast(`Reranked ${d.reranked || 0} jobs · ${d.errors || 0} errors · ${Math.round((d.elapsed_ms || 0) / 1000)}s.`, 'success');
+        if (status) status.textContent = `Last batch: ${d.reranked || 0} reranked, ${d.errors || 0} errors.`;
+      } else {
+        const dd = (r.data && (r.data.data || r.data)) || {};
+        if (dd.skipped_no_provider) {
+          toast('No real LLM provider configured. Open Settings → LLM to pin one.', 'error');
+        } else {
+          toast('Batch rerank failed: ' + (r.error || 'unknown'), 'error');
+        }
+      }
+    } catch (e) {
+      clearInterval(pollInterval);
+      toast('Batch rerank network error: ' + e.message, 'error');
+    } finally {
+      _rerankBatchInProgress = false;
+      btn.disabled = false;
+      btn.textContent = original;
+    }
+  }
+
+  async function openLLMRerankModal(jobId) {
+    const modal = $('#llm-rerank-modal');
+    const body = $('#llm-rerank-modal-body');
+    const viewRunBtn = $('#llm-rerank-view-run');
+    if (!modal || !body) return;
+    const titleEl = $('#llm-rerank-modal-title');
+    body.innerHTML = '<p class="muted small">Loading LLM score for job ' + jobId + '…</p>';
+    if (viewRunBtn) {
+      viewRunBtn.removeAttribute('data-run-id');
+      viewRunBtn.disabled = true;
+    }
+    modal.classList.remove('hidden');
+
+    let row = (state.llmScores || {})[jobId] || null;
+    if (!row) {
+      // No cached LLM score — try the live endpoint with a tight cap so
+      // we only walk the table once. If still empty, prompt the user.
+      const r = await api.get('/api/scoring/llm-scores?limit=500', { silent: true });
+      if (r.ok) {
+        for (const s of (r.data || [])) {
+          if (s.job_id === jobId) { row = s; break; }
+        }
+      }
+    }
+    const job = (state.jobs || []).find((j) => j.id === jobId) || {};
+    if (titleEl) {
+      titleEl.textContent = `LLM SCORE · ${job.title || 'Job ' + jobId} · ${job.company || ''}`.trim();
+    }
+
+    if (!row) {
+      body.innerHTML = `
+        <p class="muted small">No LLM semantic score for this job yet.</p>
+        <p>Click <strong>RESCORE</strong> on the row to run the LLM second-pass scoring now (10–60s with a local 70B model).</p>
+      `;
+      return;
+    }
+    const semantic = row.semantic_score == null ? '—' : Math.round(row.semantic_score * 100);
+    const det = row.deterministic_score == null ? '—' : Math.round(row.deterministic_score * 100);
+    const action = (row.recommended_action || '').toUpperCase();
+    const esc = (s) => (s == null ? '' : String(s)).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const list = (arr, emptyLabel) => {
+      if (!arr || !arr.length) {
+        return `<ul class="llm-modal-list is-empty"><li>${emptyLabel}</li></ul>`;
+      }
+      return '<ul class="llm-modal-list">' +
+        arr.map((s) => `<li>${esc(s)}</li>`).join('') + '</ul>';
+    };
+    const actionClass = action === 'APPLY' ? 'is-good'
+      : (action === 'SKIP' ? 'is-bad' : '');
+    body.innerHTML = `
+      <div class="llm-modal-kpis">
+        <span class="ap-kpi"><strong>LLM ${semantic}/100</strong></span>
+        <span class="ap-kpi"><strong>DETERMINISTIC ${det}/100</strong></span>
+        <span class="llm-rerank-pill ${actionClass}"><strong>${action || '—'}</strong></span>
+      </div>
+      <div class="llm-modal-summary">${esc(row.fit_summary || '(no fit summary)')}</div>
+      <div class="llm-modal-section">
+        <h4>Strengths (evidence-backed)</h4>
+        ${list(row.strengths, 'No strengths reported.')}
+      </div>
+      <div class="llm-modal-section">
+        <h4>Gaps</h4>
+        ${list(row.gaps, 'No gaps reported.')}
+      </div>
+      <div class="llm-modal-section">
+        <h4>Red flags</h4>
+        ${list(row.red_flags, 'None.')}
+      </div>
+      <p class="muted small" style="margin-top:var(--s-3);">Scored against your verified Career Evidence Vault. No skills/certs are assumed.</p>
+    `;
+    if (viewRunBtn) {
+      if (row.llm_run_id) {
+        viewRunBtn.setAttribute('data-run-id', String(row.llm_run_id));
+        viewRunBtn.disabled = false;
+      } else {
+        viewRunBtn.disabled = true;
+      }
+    }
+  }
+
   function renderBadges(j) {
     const wrap = el('span', {}, []);
     const score = j.score;
@@ -1388,14 +1719,26 @@
       const apps = board[status] || [];
       $('.count', col).textContent = String(apps.length);
       for (const app of apps) {
+        const showAnalyze = ['interview','offer','negotiating','interviewing'].includes((app.status || status || '').toLowerCase());
+        const children = [
+          el('div', { class: 'kc-title', text: safeText(app.title || ('app#' + app.id)) }),
+          el('div', { class: 'kc-meta', text: `${safeText(app.company || '')} · score ${app.score ?? '—'}` }),
+        ];
+        if (showAnalyze) {
+          children.push(el('button', {
+            class: 'btn btn-secondary small', type: 'button',
+            style: 'margin-top:6px;',
+            onclick: (e) => {
+              e.stopPropagation();
+              window.openOffersForApp && window.openOffersForApp(app.id);
+            },
+          }, 'ANALYZE OFFER'));
+        }
         const card = el('div', {
           class: 'kan-card', draggable: 'true',
           'data-app-id': String(app.id),
           onclick: () => openApplicationModal(app),
-        }, [
-          el('div', { class: 'kc-title', text: safeText(app.title || ('app#' + app.id)) }),
-          el('div', { class: 'kc-meta', text: `${safeText(app.company || '')} · score ${app.score ?? '—'}` }),
-        ]);
+        }, children);
         card.addEventListener('dragstart', (e) => e.dataTransfer.setData('text/plain', String(app.id)));
         body.appendChild(card);
       }
@@ -1429,6 +1772,15 @@
         onclick: () => viewPacketManifest(app.id) }, 'VIEW PACKET');
       body.appendChild(viewBtn);
     }
+    // Jump to INTERVIEW tab for prep + practice
+    body.appendChild(el('button', {
+      class: 'btn btn-primary small', type: 'button',
+      onclick: () => {
+        m.classList.add('hidden');
+        state.interviewFocusAppId = app.id;
+        switchPage('interview');
+      },
+    }, 'INTERVIEW PREP'));
     $('#card-save-btn').onclick = async () => {
       const payload = {
         notes: $('#app-notes').value,
@@ -2440,6 +2792,352 @@
   }
 
   // ============================================================
+  // PROFILE PROPOSAL — human review gate for LLM inference
+  // ============================================================
+
+  // Field labels used in the modal headings — falls back to the field
+  // name if not in the map so we never crash on new schema additions.
+  const PROPOSAL_FIELD_LABELS = {
+    name: 'Name',
+    email: 'Email',
+    phone: 'Phone',
+    location: 'Location',
+    target_titles: 'Target titles',
+    target_keywords: 'Target keywords / skills',
+    industries: 'Industries',
+    years_experience: 'Years of experience',
+    seniority_level: 'Seniority level (LLM)',
+    seniority_targets: 'Seniority targets',
+    key_achievements: 'Key achievements',
+    preferred_locations: 'Preferred locations',
+    linkedin_url: 'LinkedIn URL',
+    github_url: 'GitHub URL',
+    portfolio_url: 'Portfolio URL',
+    currency: 'Currency',
+  };
+
+  // Local state for the open proposal modal.
+  const proposalState = {
+    proposalId: null,
+    differences: {},
+    deterministic: {},
+    llm: {},
+    llmRunId: null,
+    pollTimer: null,
+  };
+
+  function fieldLabel(name) {
+    return PROPOSAL_FIELD_LABELS[name] || name.replace(/_/g, ' ');
+  }
+
+  function renderProposalValue(value) {
+    if (value == null || value === '') {
+      return el('span', { class: 'empty', text: '— null —' });
+    }
+    if (Array.isArray(value)) {
+      if (!value.length) return el('span', { class: 'empty', text: '— empty list —' });
+      const ul = el('ul');
+      for (const v of value) {
+        ul.appendChild(el('li', { text: String(v) }));
+      }
+      return ul;
+    }
+    if (typeof value === 'object') {
+      return el('code', { text: JSON.stringify(value) });
+    }
+    return el('span', { text: String(value) });
+  }
+
+  function valueIsList(d, l) {
+    return Array.isArray(d) || Array.isArray(l);
+  }
+
+  function maybeOpenProposalGate(response) {
+    if (!response || !response.proposal_id) return false;
+    const diffs = response.differences || {};
+    const diffKeys = Object.keys(diffs);
+    if (!diffKeys.length) return false;
+    openProposalModal({
+      proposalId: response.proposal_id,
+      differences: diffs,
+      deterministic: response.deterministic || {},
+      llm: response.llm || {},
+      llmRunId: response.llm_run_id || null,
+    });
+    return true;
+  }
+
+  function openProposalModal(payload) {
+    const modal = document.getElementById('proposal-modal');
+    if (!modal) return;
+    proposalState.proposalId = payload.proposalId;
+    proposalState.differences = payload.differences || {};
+    proposalState.deterministic = payload.deterministic || {};
+    proposalState.llm = payload.llm || {};
+    proposalState.llmRunId = payload.llmRunId || null;
+
+    const diffKeys = Object.keys(proposalState.differences);
+    const intro = document.getElementById('proposal-modal-intro');
+    if (intro) {
+      const n = diffKeys.length;
+      intro.textContent = n
+        ? `The LLM and the deterministic parser disagree on ${n} field${n === 1 ? '' : 's'}. Pick the value you trust for each, edit manually, or use one of the bulk shortcuts. Nothing is committed to your profile until you click ACCEPT SELECTED.`
+        : 'No disagreements found — nothing to review.';
+    }
+
+    const body = document.getElementById('proposal-modal-body');
+    if (body) {
+      body.innerHTML = '';
+      for (const field of diffKeys) {
+        body.appendChild(renderProposalField(field, proposalState.differences[field]));
+      }
+    }
+    modal.classList.remove('hidden');
+  }
+
+  function closeProposalModal() {
+    const modal = document.getElementById('proposal-modal');
+    if (modal) modal.classList.add('hidden');
+    proposalState.proposalId = null;
+    proposalState.differences = {};
+    proposalState.deterministic = {};
+    proposalState.llm = {};
+    proposalState.llmRunId = null;
+  }
+
+  function renderProposalField(field, diff) {
+    const wrap = el('div', { class: 'proposal-field', 'data-field': field });
+    const head = el('div', { class: 'proposal-field-head' }, [
+      el('h4', { text: fieldLabel(field) }),
+    ]);
+    if (proposalState.llmRunId) {
+      const btn = el('button', {
+        class: 'proposal-reasoning-btn',
+        type: 'button',
+        text: 'VIEW REASONING',
+        onclick: () => openLLMRunModal(proposalState.llmRunId),
+      });
+      head.appendChild(btn);
+    }
+    wrap.appendChild(head);
+
+    const opts = el('div', { class: 'proposal-field-options' });
+    const detVal = diff.deterministic;
+    const llmVal = diff.llm;
+    const isList = valueIsList(detVal, llmVal);
+
+    opts.appendChild(makeOption(field, 'deterministic', 'DETERMINISTIC', detVal));
+    opts.appendChild(makeOption(field, 'llm', 'LLM', llmVal));
+    opts.appendChild(makeOption(field, 'manual', 'EDIT MANUALLY', null, { isList, seed: llmVal != null && llmVal !== '' ? llmVal : detVal }));
+
+    wrap.appendChild(opts);
+    return wrap;
+  }
+
+  function makeOption(field, key, label, value, extra = {}) {
+    const row = el('label', { class: 'proposal-opt', 'data-choice': key });
+    const radio = el('input', { type: 'radio', name: `prop-${field}`, value: key });
+    radio.addEventListener('change', () => {
+      const parent = row.parentElement;
+      if (parent) {
+        for (const sib of parent.querySelectorAll('.proposal-opt')) {
+          sib.classList.toggle('selected', sib === row);
+        }
+      }
+    });
+    // Default selection: LLM gets first dibs (it's usually the smarter
+    // answer); if LLM value is null/absent, fall back to deterministic.
+    const llmHasValue = (val) => val != null && !(Array.isArray(val) && !val.length) && val !== '';
+    if (key === 'llm' && llmHasValue(proposalState.differences[field].llm)) {
+      radio.checked = true;
+      row.classList.add('selected');
+    } else if (key === 'deterministic'
+               && !llmHasValue(proposalState.differences[field].llm)
+               && llmHasValue(proposalState.differences[field].deterministic)) {
+      radio.checked = true;
+      row.classList.add('selected');
+    }
+    row.appendChild(radio);
+    row.appendChild(el('span', { class: 'proposal-opt-label', text: label }));
+
+    const valBox = el('div', { class: 'proposal-opt-value' });
+    if (key === 'manual') {
+      const isList = !!extra.isList;
+      const seed = extra.seed;
+      let seedStr = '';
+      if (Array.isArray(seed)) seedStr = seed.join(', ');
+      else if (seed != null) seedStr = String(seed);
+      const input = el(isList ? 'textarea' : 'input', {
+        class: 'manual-input',
+        rows: isList ? 2 : undefined,
+        type: isList ? undefined : 'text',
+        placeholder: isList ? 'comma-separated values…' : 'type a value…',
+        'data-field': field,
+        'data-manual': '1',
+      });
+      input.value = seedStr;
+      input.addEventListener('focus', () => {
+        radio.checked = true;
+        row.classList.add('selected');
+        const parent = row.parentElement;
+        if (parent) {
+          for (const sib of parent.querySelectorAll('.proposal-opt')) {
+            if (sib !== row) sib.classList.remove('selected');
+          }
+        }
+      });
+      valBox.appendChild(input);
+    } else {
+      valBox.appendChild(renderProposalValue(value));
+    }
+    row.appendChild(valBox);
+    return row;
+  }
+
+  function collectProposalChoices() {
+    const body = document.getElementById('proposal-modal-body');
+    if (!body) return {};
+    const accepted = {};
+    for (const fieldEl of body.querySelectorAll('.proposal-field')) {
+      const field = fieldEl.getAttribute('data-field');
+      const sel = fieldEl.querySelector(`input[name="prop-${field}"]:checked`);
+      if (!sel) continue;
+      const choice = sel.value;
+      if (choice === 'deterministic' || choice === 'llm') {
+        accepted[field] = choice;
+      } else if (choice === 'manual') {
+        const input = fieldEl.querySelector('.manual-input');
+        if (!input) continue;
+        let v = (input.value || '').trim();
+        const det = proposalState.differences[field].deterministic;
+        const llm = proposalState.differences[field].llm;
+        const isList = Array.isArray(det) || Array.isArray(llm);
+        if (isList) {
+          accepted[field] = v ? v.split(',').map(s => s.trim()).filter(Boolean) : [];
+        } else {
+          accepted[field] = v;
+        }
+      }
+    }
+    return accepted;
+  }
+
+  async function submitProposalAcceptance(choicesOverride) {
+    const pid = proposalState.proposalId;
+    if (!pid) return;
+    const accepted = choicesOverride || collectProposalChoices();
+    if (!Object.keys(accepted).length) {
+      toast('Select a value for at least one field, or use a bulk shortcut.', 'warn');
+      return;
+    }
+    const r = await api.post(`/api/profile/proposals/${pid}/accept`,
+      { accepted_fields: accepted });
+    if (!r.ok) return;
+    const data = r.data || {};
+    toast(`Applied ${(data.applied_fields || []).length} field${(data.applied_fields || []).length === 1 ? '' : 's'} to your profile.`,
+          'success');
+    closeProposalModal();
+    await loadProfile();
+    refreshProposalsPills();
+  }
+
+  async function rejectProposal() {
+    const pid = proposalState.proposalId;
+    if (!pid) { closeProposalModal(); return; }
+    const r = await api.post(`/api/profile/proposals/${pid}/reject`, {});
+    if (r.ok) {
+      toast('Proposal rejected — your profile is unchanged.', 'success');
+    }
+    closeProposalModal();
+    refreshProposalsPills();
+  }
+
+  function bulkAccept(source) {
+    const accepted = {};
+    for (const field of Object.keys(proposalState.differences)) {
+      accepted[field] = source;
+    }
+    submitProposalAcceptance(accepted);
+  }
+
+  function bindProfileProposalGate() {
+    const modal = document.getElementById('proposal-modal');
+    if (!modal) return;
+    const closeBtn = document.getElementById('proposal-close');
+    if (closeBtn) closeBtn.addEventListener('click', closeProposalModal);
+    const accBtn = document.getElementById('proposal-accept-selected');
+    if (accBtn) accBtn.addEventListener('click', () => submitProposalAcceptance());
+    const llmBtn = document.getElementById('proposal-use-all-llm');
+    if (llmBtn) llmBtn.addEventListener('click', () => bulkAccept('llm'));
+    const detBtn = document.getElementById('proposal-use-all-det');
+    if (detBtn) detBtn.addEventListener('click', () => bulkAccept('deterministic'));
+    const rejBtn = document.getElementById('proposal-reject');
+    if (rejBtn) rejBtn.addEventListener('click', rejectProposal);
+
+    // Click on the backdrop closes (clicking the card does not bubble up
+    // because of how flexbox + the form-actions sticky element work)
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) closeProposalModal();
+    });
+
+    // Sidebar pills + initial load
+    refreshProposalsPills();
+    startProposalsPoll();
+  }
+
+  async function refreshProposalsPills() {
+    const wrap = document.getElementById('proposals-pills');
+    const list = document.getElementById('proposals-pills-list');
+    if (!wrap || !list) return;
+    const r = await api.get('/api/profile/proposals?status=pending&limit=20', { silent: true });
+    if (!r.ok) { wrap.hidden = true; return; }
+    const items = (r.data && r.data.proposals) || [];
+    if (!items.length) { wrap.hidden = true; list.innerHTML = ''; return; }
+    wrap.hidden = false;
+    list.innerHTML = '';
+    for (const p of items) {
+      const li = el('li');
+      const btn = el('button', {
+        class: 'proposal-pill',
+        type: 'button',
+        title: `Proposal #${p.id} from ${p.source} — ${new Date(p.created_at * 1000).toLocaleString()}`,
+        text: `#${p.id} · ${p.source} · ${fmtRel(p.created_at)}`,
+        onclick: () => openProposalById(p.id),
+      });
+      li.appendChild(btn);
+      list.appendChild(li);
+    }
+  }
+
+  async function openProposalById(pid) {
+    const r = await api.get(`/api/profile/proposals/${pid}`, { silent: true });
+    if (!r.ok) {
+      toast(`Could not load proposal #${pid}.`, 'error');
+      return;
+    }
+    const d = r.data || {};
+    openProposalModal({
+      proposalId: d.id,
+      differences: d.differences || {},
+      deterministic: d.deterministic || {},
+      llm: d.llm || {},
+      llmRunId: d.llm_run_id || null,
+    });
+  }
+
+  function startProposalsPoll() {
+    if (proposalState.pollTimer) return;
+    // 10s cadence — matches the spec; doesn't pile up if tab is hidden
+    // because fetch from a hidden tab still resolves but at low priority.
+    proposalState.pollTimer = setInterval(() => {
+      if (document.hidden) return;
+      const setup = document.querySelector('section.page[data-page="setup"]');
+      if (!setup || setup.classList.contains('hidden')) return;
+      refreshProposalsPills();
+    }, 10000);
+  }
+
+  // ============================================================
   // INIT
   // ============================================================
   function init() {
@@ -2456,11 +3154,16 @@
     bindInbox();
     bindCalendar();
     bindIntelNetwork();
+    bindOffers();
+    bindInterview();
     bindSettings();
+    bindProfileProposalGate();
     refreshWeightTotal();
     bootStatus();
     bindLLMActivity();
     startLLMActivityPoll();
+    bindVaultQuickUpdate();
+    bindSetupQuickIngestLinks();
 
     const start = (location.hash || '#landing').replace('#', '');
     switchPage(PAGES.includes(start) ? start : 'landing');
@@ -2667,6 +3370,489 @@
   }
 
   // ============================================================
+  // OFFERS — LLM offer analysis + comparison
+  // ============================================================
+  const offerState = {
+    list: [],
+    selected: new Set(),
+  };
+
+  function bindOffers() {
+    const form = $('#offer-form');
+    if (!form) return;
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      await submitOfferAnalysis();
+    });
+    const refresh = $('#offers-refresh');
+    if (refresh) refresh.addEventListener('click', () => loadOffersList());
+    const compareBtn = $('#offers-compare-btn');
+    if (compareBtn) compareBtn.addEventListener('click', () => runCompareSelected());
+    const closeBtn = $('#offer-detail-close');
+    if (closeBtn) closeBtn.addEventListener('click', () => {
+      const card = $('#offer-detail-card');
+      if (card) card.classList.add('hidden');
+    });
+    const closeCmpBtn = $('#offer-compare-close');
+    if (closeCmpBtn) closeCmpBtn.addEventListener('click', () => {
+      const card = $('#offer-compare-card');
+      if (card) card.classList.add('hidden');
+    });
+  }
+
+  async function loadOffers() {
+    await loadOfferAppOptions();
+    await loadOffersList();
+    // If pipeline asked to pre-fill, apply now.
+    if (state._offerPrefill) {
+      const sel = $('#offer-app-select');
+      if (sel) sel.value = String(state._offerPrefill);
+      state._offerPrefill = null;
+    }
+  }
+
+  async function loadOfferAppOptions() {
+    const sel = $('#offer-app-select');
+    if (!sel) return;
+    const r = await api.get('/api/applications/board', { silent: true });
+    const board = (r.ok && r.data) || {};
+    const apps = Object.values(board).flat();
+    sel.innerHTML = '';
+    sel.appendChild(el('option', { value: '' }, 'No application — analyze offer in isolation'));
+    for (const a of apps) {
+      const label = `#${a.id} · ${a.title || 'application'} @ ${a.company || ''} [${a.status || '?'}]`;
+      sel.appendChild(el('option', { value: String(a.id) }, label));
+    }
+  }
+
+  async function loadOffersList() {
+    const host = $('#offers-list');
+    if (!host) return;
+    host.innerHTML = '<p class="muted small">Loading…</p>';
+    const r = await api.get('/api/offers?limit=50', { silent: true });
+    if (!r.ok) {
+      host.innerHTML = `<p class="ap-error">Could not load: ${r.error || 'unknown'}</p>`;
+      return;
+    }
+    const rows = (r.data || []);
+    offerState.list = rows;
+    offerState.selected = new Set();
+    updateCompareBtnState();
+    if (!rows.length) {
+      host.innerHTML = '<p class="muted">No analyses yet. Paste an offer above to get started.</p>';
+      return;
+    }
+    host.innerHTML = '';
+    for (const a of rows) {
+      host.appendChild(renderOfferCard(a));
+    }
+  }
+
+  function updateCompareBtnState() {
+    const btn = $('#offers-compare-btn');
+    if (!btn) return;
+    btn.disabled = offerState.selected.size < 2;
+  }
+
+  function renderOfferCard(a) {
+    const recColor = recommendationPillClass(a.recommendation);
+    const score = a.total_score != null ? Math.round(Number(a.total_score)) : '—';
+    const company = safeText(a.company || '(no application)');
+    const title = safeText(a.title || 'Offer');
+    const when = fmtRel(a.created_at);
+    const card = el('div', { class: 'card offer-card', style: 'padding:var(--s-3);' });
+    const head = el('div', { class: 'kpi-row', style: 'justify-content:space-between;align-items:flex-start;gap:var(--s-3);flex-wrap:wrap;' });
+    const left = el('div', { class: 'stack', style: 'flex:1;min-width:280px;' });
+    const titleLine = el('div', {}, [
+      el('label', { style: 'display:inline-flex;align-items:center;gap:6px;cursor:pointer;' }, [
+        el('input', {
+          type: 'checkbox',
+          'data-offer-id': String(a.id),
+          onchange: (e) => {
+            if (e.target.checked) offerState.selected.add(a.id);
+            else offerState.selected.delete(a.id);
+            updateCompareBtnState();
+          },
+        }),
+        el('strong', { text: `${company} · ${title}` }),
+      ]),
+    ]);
+    left.appendChild(titleLine);
+    left.appendChild(el('div', { class: 'muted small', text: `${when} ago · analysis #${a.id}` }));
+    const kpis = el('div', { class: 'kpi-row', style: 'gap:var(--s-3);' }, [
+      el('span', { class: 'ap-kpi' }, [el('strong', { text: `SCORE ${score}` })]),
+      el('span', { class: 'pill ' + recColor, text: (a.recommendation || 'negotiate').toUpperCase().replace('_', ' ') }),
+    ]);
+    left.appendChild(kpis);
+    const actions = el('div', { class: 'form-actions', style: 'margin:0;flex-wrap:wrap;' }, [
+      el('button', { class: 'btn btn-secondary small', type: 'button', onclick: () => openOfferDetail(a.id) }, 'VIEW'),
+      el('button', { class: 'btn btn-ghost small', type: 'button', onclick: () => deleteOffer(a.id) }, 'DELETE'),
+    ]);
+    if (a.llm_run_id) {
+      actions.appendChild(
+        el('button', { class: 'btn btn-ghost small', type: 'button', onclick: () => openLLMRunModal(a.llm_run_id) }, 'VIEW LLM REASONING')
+      );
+    }
+    head.appendChild(left);
+    head.appendChild(actions);
+    card.appendChild(head);
+    return card;
+  }
+
+  function recommendationPillClass(rec) {
+    const r = (rec || '').toLowerCase();
+    if (r === 'accept') return 'pill-green';
+    if (r === 'walk' || r === 'counter_hard') return 'pill-red';
+    if (r === 'negotiate') return 'pill-warn';
+    return 'pill-muted';
+  }
+
+  async function deleteOffer(id) {
+    if (!confirm('Delete this offer analysis?')) return;
+    // No DELETE endpoint — soft-delete by leaving it (the user can ignore).
+    // For now, send a fetch attempt; if not supported, just re-load and show a toast.
+    try {
+      const r = await fetch('/api/offers/' + id, { method: 'DELETE' });
+      if (r.ok) {
+        toast('Deleted.', 'success');
+      } else {
+        toast('Delete not supported on server — analysis remains.', 'warn');
+      }
+    } catch (e) {
+      toast('Delete failed: ' + e.message, 'error');
+    }
+    loadOffersList();
+  }
+
+  async function submitOfferAnalysis() {
+    const sel = $('#offer-app-select');
+    const txt = $('#offer-text');
+    const btn = $('#offer-analyze-btn');
+    const status = $('#offer-status');
+    if (!txt || !(txt.value || '').trim()) {
+      toast('Paste the offer text first.', 'warn');
+      return;
+    }
+    const body = { offer_text: txt.value.trim() };
+    const appId = (sel && sel.value) ? Number(sel.value) : null;
+    if (appId) body.application_id = appId;
+
+    if (btn) btn.disabled = true;
+    if (status) status.textContent = 'Analyzing with LLM — this may take 30–90s on a local model…';
+    const r = await api.post('/api/offers/analyze', body);
+    if (btn) btn.disabled = false;
+    if (status) status.textContent = '';
+    if (!r.ok) return;
+    toast('Analysis complete.', 'success');
+    txt.value = '';
+    await loadOffersList();
+    if (r.data && r.data.id) openOfferDetail(r.data.id, r.data);
+  }
+
+  async function openOfferDetail(id, prefetched) {
+    const card = $('#offer-detail-card');
+    const body = $('#offer-detail-body');
+    const ttl = $('#offer-detail-title');
+    if (!card || !body) return;
+    card.classList.remove('hidden');
+    body.innerHTML = '<p class="muted small">Loading…</p>';
+
+    let data = prefetched;
+    if (!data) {
+      // We don't have a single-by-id endpoint; pull from list state, or hit by app.
+      const found = (offerState.list || []).find(x => Number(x.id) === Number(id));
+      if (found) data = found;
+    }
+    if (!data) {
+      // Fallback — refresh and try again.
+      await loadOffersList();
+      data = (offerState.list || []).find(x => Number(x.id) === Number(id));
+    }
+    if (!data) {
+      body.innerHTML = '<p class="ap-error">Could not load analysis.</p>';
+      return;
+    }
+    if (ttl) ttl.textContent = `${data.company || '(no application)'} · ${data.title || 'Offer'} — Analysis #${data.id}`;
+    body.innerHTML = '';
+    body.appendChild(renderOfferDetail(data));
+    card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  function renderOfferDetail(a) {
+    const wrap = el('div', { class: 'stack' });
+
+    // Recommendation + score banner
+    const score = a.total_score != null ? Math.round(Number(a.total_score)) : '—';
+    wrap.appendChild(el('div', { class: 'kpi-row', style: 'gap:var(--s-4);flex-wrap:wrap;align-items:center;' }, [
+      el('div', { class: 'ap-kpi', style: 'font-size:var(--s-5);' }, [
+        el('strong', { text: 'TOTAL SCORE: ' + score + ' / 100' }),
+      ]),
+      el('span', { class: 'pill ' + recommendationPillClass(a.recommendation), style: 'font-size:14px;' },
+        'RECOMMENDATION: ' + ((a.recommendation || 'negotiate').toUpperCase().replace('_', ' '))),
+      a.llm_run_id ? el('button', { class: 'btn btn-ghost small', type: 'button', onclick: () => openLLMRunModal(a.llm_run_id) }, 'VIEW LLM REASONING') : null,
+    ].filter(Boolean)));
+
+    // COMPONENTS
+    const comp = a.components || {};
+    const compCard = el('section', { class: 'card' }, [
+      el('header', { class: 'card-head' }, el('h3', { text: 'COMPENSATION COMPONENTS' })),
+      renderComponentsGrid(comp),
+    ]);
+    wrap.appendChild(compCard);
+
+    // MARKET COMPARISON
+    const mkt = a.market_comparison || {};
+    wrap.appendChild(el('section', { class: 'card' }, [
+      el('header', { class: 'card-head' }, el('h3', { text: 'MARKET COMPARISON' })),
+      renderMarketBlock(mkt),
+    ]));
+
+    // COUNTER SCRIPT
+    const counters = a.counter_script || [];
+    wrap.appendChild(el('section', { class: 'card' }, [
+      el('header', { class: 'card-head' }, [
+        el('h3', { text: 'COUNTER SCRIPT — 3 ANGLES' }),
+        el('span', { class: 'muted small', text: 'click to expand · text is copyable' }),
+      ]),
+      renderCounters(counters),
+    ]));
+
+    // RED FLAGS
+    const flags = a.red_flags || [];
+    wrap.appendChild(el('section', { class: 'card' }, [
+      el('header', { class: 'card-head' }, el('h3', { text: 'RED FLAGS' })),
+      renderRedFlags(flags),
+    ]));
+
+    // EQUITY
+    const eq = a.equity_analysis || {};
+    wrap.appendChild(el('section', { class: 'card' }, [
+      el('header', { class: 'card-head' }, el('h3', { text: 'EQUITY ANALYSIS' })),
+      renderEquity(eq),
+    ]));
+
+    return wrap;
+  }
+
+  function renderComponentsGrid(comp) {
+    const fields = [
+      ['Base salary', comp.base_salary],
+      ['Bonus', comp.bonus],
+      ['Equity', comp.equity],
+      ['Sign-on', comp.sign_on],
+      ['Total comp (est.)', comp.total_compensation_estimate],
+    ];
+    const grid = el('div', { class: 'three-col' });
+    for (const [label, v] of fields) {
+      const valTxt = (v && v.value_text) || 'unknown';
+      const conf = (v && v.confidence) || 'unknown';
+      grid.appendChild(el('div', { class: 'kv-row', style: 'flex-direction:column;align-items:flex-start;gap:4px;' }, [
+        el('span', { class: 'kv-key small muted', text: label.toUpperCase() }),
+        el('span', { class: 'kv-val', style: 'font-family:var(--mono);font-size:13px;', text: safeText(String(valTxt)) }),
+        el('span', { class: 'pill ' + confPillClass(conf), style: 'font-size:10px;', text: conf }),
+      ]));
+    }
+    const benefits = (comp.benefits || []);
+    if (benefits.length) {
+      const list = el('ul', { class: 'bullets' });
+      for (const b of benefits) list.appendChild(el('li', { text: safeText(String(b)) }));
+      grid.appendChild(el('div', { style: 'grid-column:1 / -1;' }, [
+        el('span', { class: 'kv-key small muted', text: 'BENEFITS' }),
+        list,
+      ]));
+    }
+    return grid;
+  }
+
+  function confPillClass(conf) {
+    const c = (conf || '').toLowerCase();
+    if (c === 'stated') return 'pill-green';
+    if (c === 'estimated') return 'pill-warn';
+    return 'pill-muted';
+  }
+
+  function renderMarketBlock(mkt) {
+    const wrap = el('div', { class: 'stack' });
+    const pct = safeText(String(mkt.percentile_estimate || 'unknown'));
+    wrap.appendChild(el('p', {}, [el('strong', { text: 'Percentile estimate: ' }), pct]));
+    const lo = numOrNull(mkt.market_low);
+    const mid = numOrNull(mkt.market_mid);
+    const hi = numOrNull(mkt.market_high);
+    if (lo != null || mid != null || hi != null) {
+      const bar = el('div', { style: 'display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:12px;' }, [
+        el('span', { text: lo != null ? '$' + lo.toLocaleString() : '—' }),
+        el('div', { style: 'flex:1;height:14px;background:var(--card-2);border:2px solid var(--ink);position:relative;' }, [
+          mid != null && lo != null && hi != null && hi > lo
+            ? el('div', {
+                style: `position:absolute;top:-4px;width:4px;height:22px;background:var(--accent);left:${Math.max(0, Math.min(100, ((mid - lo) / (hi - lo)) * 100))}%;`,
+              }) : null,
+        ].filter(Boolean)),
+        el('span', { text: hi != null ? '$' + hi.toLocaleString() : '—' }),
+      ]);
+      wrap.appendChild(bar);
+      if (mid != null) wrap.appendChild(el('p', { class: 'muted small', text: 'Market midpoint: $' + mid.toLocaleString() }));
+    }
+    const factors = mkt.leverage_factors || [];
+    if (factors.length) {
+      wrap.appendChild(el('p', {}, el('strong', { text: 'Leverage factors:' })));
+      const ul = el('ul', { class: 'bullets' });
+      for (const f of factors) ul.appendChild(el('li', { text: safeText(String(f)) }));
+      wrap.appendChild(ul);
+    }
+    return wrap;
+  }
+
+  function numOrNull(v) {
+    if (v == null) return null;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  }
+
+  function renderCounters(counters) {
+    const wrap = el('div', { class: 'stack' });
+    if (!counters.length) {
+      wrap.appendChild(el('p', { class: 'muted', text: 'No counter angles returned.' }));
+      return wrap;
+    }
+    counters.forEach((c, i) => {
+      const det = el('details', { class: 'card', style: 'padding:var(--s-3);', open: i === 0 });
+      det.appendChild(el('summary', { style: 'cursor:pointer;font-weight:700;' },
+        `ANGLE ${i + 1}: ${safeText(String(c.angle_name || 'unnamed'))}`));
+      const pitch = (c.pitch || '').toString();
+      const ask = (c.suggested_ask || '').toString();
+      const ev = (c.evidence_basis || []).join(', ');
+      det.appendChild(el('p', { class: 'small muted', text: 'Suggested ask: ' + safeText(ask) }));
+      det.appendChild(el('pre', { class: 'codeblock', style: 'white-space:pre-wrap;' }, el('code', { text: pitch })));
+      const copyBtn = el('button', { class: 'btn btn-ghost small', type: 'button',
+        onclick: () => {
+          navigator.clipboard.writeText(pitch).then(() => toast('Copied pitch to clipboard.', 'success'),
+            () => toast('Could not copy.', 'warn'));
+        }
+      }, 'COPY PITCH');
+      const actions = el('div', { class: 'form-actions', style: 'margin:0;' }, [copyBtn]);
+      det.appendChild(actions);
+      if (ev) det.appendChild(el('p', { class: 'muted small', text: 'Evidence basis: claim ' + safeText(ev) }));
+      wrap.appendChild(det);
+    });
+    return wrap;
+  }
+
+  function renderRedFlags(flags) {
+    if (!flags.length) {
+      return el('p', { class: 'muted', text: 'No red flags identified.' });
+    }
+    const ul = el('ul', { class: 'stack', style: 'list-style:none;padding:0;' });
+    for (const f of flags) {
+      const sev = (f.severity || 'medium').toLowerCase();
+      const pill = sev === 'high' ? 'pill-red' : (sev === 'low' ? 'pill-muted' : 'pill-warn');
+      ul.appendChild(el('li', { class: 'card', style: 'padding:var(--s-3);' }, [
+        el('div', { class: 'kpi-row', style: 'gap:var(--s-3);align-items:center;flex-wrap:wrap;' }, [
+          el('span', { class: 'pill ' + pill, text: sev.toUpperCase() }),
+          el('strong', { text: safeText(String(f.flag || '')) }),
+        ]),
+        el('p', { class: 'small', text: safeText(String(f.explanation || '')) }),
+      ]));
+    }
+    return ul;
+  }
+
+  function renderEquity(eq) {
+    const fields = [
+      ['Strike price', eq.strike_price],
+      ['Vesting cliff', eq.vesting_cliff],
+      ['Vesting schedule', eq.vesting_schedule],
+      ['FDV stated', eq.fdv_stated],
+      ['Dilution risk', eq.dilution_risk],
+    ];
+    const dl = el('dl', { style: 'display:grid;grid-template-columns:max-content 1fr;gap:6px 16px;font-family:var(--mono);font-size:13px;' });
+    for (const [k, v] of fields) {
+      dl.appendChild(el('dt', { class: 'muted small', text: k.toUpperCase() }));
+      dl.appendChild(el('dd', { style: 'margin:0;', text: safeText(String(v || 'unknown')) }));
+    }
+    const wrap = el('div', { class: 'stack' });
+    wrap.appendChild(dl);
+    if (eq.notes) wrap.appendChild(el('p', { class: 'small', text: safeText(String(eq.notes)) }));
+    return wrap;
+  }
+
+  async function runCompareSelected() {
+    const ids = Array.from(offerState.selected);
+    if (ids.length < 2) {
+      toast('Select at least 2 analyses to compare.', 'warn');
+      return;
+    }
+    const btn = $('#offers-compare-btn');
+    if (btn) btn.disabled = true;
+    const r = await api.post('/api/offers/compare', { analysis_ids: ids });
+    if (btn) btn.disabled = false;
+    if (!r.ok) return;
+    renderCompareCard(r.data || {});
+  }
+
+  function renderCompareCard(data) {
+    const card = $('#offer-compare-card');
+    const body = $('#offer-compare-body');
+    if (!card || !body) return;
+    card.classList.remove('hidden');
+    body.innerHTML = '';
+    const cmp = data.comparison || {};
+    const scorecard = cmp.scorecard || [];
+    if (scorecard.length) {
+      const tbl = el('table', { class: 'data-table' }, [
+        el('thead', {}, el('tr', {}, [
+          el('th', { text: 'ID' }),
+          el('th', { text: 'COMPANY' }),
+          el('th', { text: 'TITLE' }),
+          el('th', { text: 'COMP' }),
+          el('th', { text: 'GROWTH' }),
+          el('th', { text: 'RISK' }),
+          el('th', { text: 'FIT' }),
+          el('th', { text: 'OVERALL' }),
+          el('th', { text: 'HEADLINE' }),
+        ])),
+        el('tbody', {}, scorecard.map(row => el('tr', {}, [
+          el('td', { text: '#' + (row.analysis_id ?? '?') }),
+          el('td', { text: safeText(String(row.company || '')) }),
+          el('td', { text: safeText(String(row.title || '')) }),
+          el('td', { text: String(row.comp_score ?? '—') }),
+          el('td', { text: String(row.growth_score ?? '—') }),
+          el('td', { text: String(row.risk_score ?? '—') }),
+          el('td', { text: String(row.fit_score ?? '—') }),
+          el('td', {}, el('strong', { text: String(row.overall ?? '—') })),
+          el('td', { text: safeText(String(row.headline || '')) }),
+        ]))),
+      ]);
+      body.appendChild(el('div', { class: 'table-wrap' }, tbl));
+    }
+    const regret = cmp.regret_minimization || {};
+    if (regret.reasoning || regret.least_regret_12mo) {
+      body.appendChild(el('h4', { text: 'REGRET MINIMIZATION (12 months out)' }));
+      if (regret.least_regret_12mo != null) {
+        body.appendChild(el('p', {}, [el('strong', { text: 'Least-regret offer: #' + regret.least_regret_12mo })]));
+      }
+      if (regret.reasoning) body.appendChild(el('p', { text: safeText(String(regret.reasoning)) }));
+    }
+    if (cmp.recommendation) {
+      body.appendChild(el('p', {}, [el('strong', { text: 'Recommendation: ' }), safeText(String(cmp.recommendation))]));
+    }
+    if (cmp.reasoning) {
+      body.appendChild(el('p', { class: 'small', text: safeText(String(cmp.reasoning)) }));
+    }
+    if (data.llm_run_id) {
+      body.appendChild(el('div', { class: 'form-actions', style: 'margin-top:var(--s-3);' }, [
+        el('button', { class: 'btn btn-ghost small', type: 'button', onclick: () => openLLMRunModal(data.llm_run_id) }, 'VIEW LLM REASONING'),
+      ]));
+    }
+    card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  // Public helper so the pipeline can pre-fill the offers tab.
+  window.openOffersForApp = function (appId) {
+    state._offerPrefill = appId;
+    switchPage('offers');
+  };
+
+  // ============================================================
   // LLM ACTIVITY PANEL — live view of what the LLM is doing
   // ============================================================
   const LLM_STAGE_LABELS = {
@@ -2832,6 +4018,702 @@
       <p class="muted small">Run #${d.id} · ${new Date(d.ts * 1000).toLocaleString()}</p>
     `;
   }
+
+  // ============================================================
+  // VAULT QUICK-UPDATE (always-on widget)
+  // ============================================================
+  // Pulls the SETUP page's saved URL values into the modal's URL inputs so
+  // the user sees what's currently on file before pushing a change.
+  async function loadVaultUpdateState() {
+    const r = await api.get('/api/profile', { silent: true });
+    const p = (r.ok && r.data) || {};
+    const li = document.getElementById('vu-linkedin');
+    const gh = document.getElementById('vu-github');
+    const pf = document.getElementById('vu-portfolio');
+    if (li) li.value = p.linkedin_url || '';
+    if (gh) gh.value = p.github_url || '';
+    if (pf) pf.value = p.portfolio_url || '';
+    // Render the existing-sources list with claim counts + per-row buttons
+    const s = await api.get('/api/vault/sources-with-claim-counts', { silent: true });
+    const host = document.getElementById('vu-sources-list');
+    if (!host) return;
+    const sources = (s.ok && s.data && s.data.sources) || [];
+    if (!sources.length) {
+      host.innerHTML = '<p class="muted small">No evidence sources yet — add a URL or paste above.</p>';
+      return;
+    }
+    host.innerHTML = '';
+    for (const src of sources) {
+      const row = el('div', { class: 'vu-source-row', 'data-source-id': src.id });
+      const left = el('div', { class: 'vu-source-meta' }, [
+        el('div', { class: 'vu-source-title', text: src.title || src.filename || src.url || `Source #${src.id}` }),
+        el('div', { class: 'muted small' }, [
+          el('span', { text: `#${src.id} · ` }),
+          el('strong', { text: (src.source_type || '—').toUpperCase() }),
+          el('span', { text: ` · ${src.claim_count != null ? src.claim_count : 0} claim${src.claim_count === 1 ? '' : 's'}` }),
+        ]),
+      ]);
+      const right = el('div', { class: 'vu-source-actions' }, [
+        el('span', { class: 'vu-source-status muted small', text: '' }),
+        el('button', {
+          class: 'btn btn-ghost small', type: 'button',
+          onclick: () => reingestOneSourceUI(src.id, row),
+        }, 'RE-INGEST'),
+      ]);
+      row.appendChild(left);
+      row.appendChild(right);
+      host.appendChild(row);
+    }
+  }
+
+  async function reingestOneSourceUI(sourceId, rowEl) {
+    const btn = rowEl && rowEl.querySelector('button');
+    const status = rowEl && rowEl.querySelector('.vu-source-status');
+    if (btn) { btn.disabled = true; btn.textContent = 'RUNNING…'; }
+    if (status) status.textContent = 'LLM running…';
+    const r = await api.post(`/api/vault/sources/${sourceId}/reingest`, {}, { silent: true });
+    if (btn) { btn.disabled = false; btn.textContent = 'RE-INGEST'; }
+    if (!r.ok) {
+      if (status) status.textContent = `Failed: ${r.error || 'unknown'}`;
+      toast(`Re-ingest #${sourceId}: ${r.error || 'failed'}`, 'error');
+      return;
+    }
+    const d = (r.data && r.data.data) || r.data || {};
+    const oldN = d.claims_old_count ?? 0;
+    const newN = d.claims_inserted ?? 0;
+    const dropped = d.claims_dropped_unverified ?? 0;
+    if (status) {
+      status.innerHTML = `${oldN} &rarr; ${newN} claims · ${dropped} dropped${
+        d.llm_run_id ? ` · <a href="#" data-llm-run="${d.llm_run_id}">VIEW LLM REASONING</a>` : ''
+      }`;
+      const link = status.querySelector('[data-llm-run]');
+      if (link) link.addEventListener('click', (ev) => {
+        ev.preventDefault();
+        openLLMRunModal(Number(link.getAttribute('data-llm-run')));
+      });
+    }
+    toast(`Source #${sourceId}: ${oldN} → ${newN} claims (${dropped} dropped)`, 'success');
+    // Refresh the vault page if it's mounted
+    if (typeof loadVault === 'function') { try { loadVault(); } catch (_) {} }
+  }
+
+  async function reingestAllSourcesUI() {
+    const btn = document.getElementById('vu-reingest-all');
+    if (btn) { btn.disabled = true; btn.textContent = 'RUNNING…'; }
+    const host = document.getElementById('vu-sources-list');
+    const rows = host ? Array.from(host.querySelectorAll('.vu-source-row')) : [];
+    for (const row of rows) {
+      const status = row.querySelector('.vu-source-status');
+      if (status) status.textContent = 'queued';
+    }
+    const r = await api.post('/api/vault/reingest', {}, { silent: true });
+    if (btn) { btn.disabled = false; btn.textContent = 'RE-INGEST ALL'; }
+    if (!r.ok) {
+      toast(`Re-ingest ALL failed: ${r.error || 'unknown'}`, 'error');
+      return;
+    }
+    const d = (r.data && r.data.data) || r.data || {};
+    const totals = d.totals || {};
+    toast(`Re-ingest: ${totals.claims_inserted || 0} inserted, ${totals.claims_dropped_unverified || 0} dropped, ${totals.errors || 0} errors`, 'success');
+    await loadVaultUpdateState();
+    if (typeof loadVault === 'function') { try { loadVault(); } catch (_) {} }
+  }
+
+  async function quickUpdateUI(payload, statusEl) {
+    if (statusEl) statusEl.textContent = 'LLM running…';
+    const r = await api.post('/api/vault/quick-update', payload, { silent: true });
+    if (!r.ok) {
+      if (statusEl) statusEl.textContent = `Failed: ${r.error || 'unknown'}`;
+      toast(`Quick-update: ${r.error || 'failed'}`, 'error');
+      return null;
+    }
+    const d = (r.data && r.data.data) || r.data || {};
+    const touched = d.touched || [];
+    const parts = [];
+    for (const t of touched) {
+      if (!t.ok) {
+        parts.push(`${(t.kind || '').toUpperCase()}: ${t.error || 'failed'}`);
+        continue;
+      }
+      const seg = `${(t.kind || '').toUpperCase()} #${t.source_id}: ${t.claims_inserted ?? 0} claims` +
+                  (t.claims_dropped_unverified ? `, ${t.claims_dropped_unverified} dropped` : '');
+      parts.push(t.llm_run_id
+        ? `${seg} <a href="#" data-llm-run="${t.llm_run_id}">VIEW LLM REASONING</a>`
+        : seg);
+    }
+    if (statusEl) {
+      statusEl.innerHTML = parts.join(' &middot; ') || 'No-op.';
+      statusEl.querySelectorAll('[data-llm-run]').forEach(a => {
+        a.addEventListener('click', (ev) => {
+          ev.preventDefault();
+          openLLMRunModal(Number(a.getAttribute('data-llm-run')));
+        });
+      });
+    }
+    toast('Vault updated.', 'success');
+    await loadVaultUpdateState();
+    if (typeof loadVault === 'function') { try { loadVault(); } catch (_) {} }
+    if (typeof loadVaultSummary === 'function') { try { loadVaultSummary(); } catch (_) {} }
+    return d;
+  }
+
+  async function ingestResumeUI() {
+    const fileEl = document.getElementById('vu-resume-file');
+    const status = document.getElementById('vu-resume-status');
+    if (!fileEl || !fileEl.files || !fileEl.files[0]) {
+      if (status) status.textContent = 'Pick a resume file first.';
+      return;
+    }
+    if (status) status.textContent = 'Uploading + extracting…';
+    const fd = new FormData();
+    fd.append('file', fileEl.files[0]);
+    fd.append('source_type', 'resume');
+    const r = await api.post('/api/evidence/upload', fd, { silent: true });
+    if (!r.ok) {
+      if (status) status.textContent = `Failed: ${r.error || 'unknown'}`;
+      toast(`Resume upload: ${r.error || 'failed'}`, 'error');
+      return;
+    }
+    const sourceId = r.data && (r.data.source_id ?? r.data.data?.source_id);
+    if (status) status.textContent = `Source #${sourceId} ingested · running LLM re-ingest…`;
+    // Now upgrade with the strict LLM extractor so claims have source_span verification.
+    const r2 = await api.post(`/api/vault/sources/${sourceId}/reingest`, {}, { silent: true });
+    if (!r2.ok) {
+      if (status) status.textContent = `Ingested but LLM upgrade failed: ${r2.error || 'unknown'}`;
+      toast('Resume ingested (deterministic claims only).', 'warn');
+      return;
+    }
+    const d = (r2.data && r2.data.data) || r2.data || {};
+    if (status) {
+      status.innerHTML = `Source #${sourceId} &rarr; ${d.claims_inserted ?? 0} verified claims` +
+        (d.claims_dropped_unverified ? `, ${d.claims_dropped_unverified} dropped` : '') +
+        (d.llm_run_id ? ` <a href="#" data-llm-run="${d.llm_run_id}">VIEW LLM REASONING</a>` : '');
+      const link = status.querySelector('[data-llm-run]');
+      if (link) link.addEventListener('click', (ev) => {
+        ev.preventDefault();
+        openLLMRunModal(Number(link.getAttribute('data-llm-run')));
+      });
+    }
+    toast(`Resume ingested with LLM-verified claims.`, 'success');
+    await loadVaultUpdateState();
+    if (typeof loadVault === 'function') { try { loadVault(); } catch (_) {} }
+  }
+
+  function bindVaultQuickUpdate() {
+    const toggle = document.getElementById('vault-update-toggle');
+    const modal = document.getElementById('vault-update-modal');
+    const closer = document.getElementById('vault-update-close');
+    if (!toggle || !modal) return;
+    toggle.addEventListener('click', async () => {
+      modal.classList.remove('hidden');
+      toggle.setAttribute('aria-expanded', 'true');
+      await loadVaultUpdateState();
+    });
+    if (closer) closer.addEventListener('click', () => {
+      modal.classList.add('hidden');
+      toggle.setAttribute('aria-expanded', 'false');
+    });
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) {
+        modal.classList.add('hidden');
+        toggle.setAttribute('aria-expanded', 'false');
+      }
+    });
+
+    // Per-URL save buttons
+    const saveLI = document.getElementById('vu-save-li');
+    const saveGH = document.getElementById('vu-save-gh');
+    const savePF = document.getElementById('vu-save-pf');
+    const urlStatus = document.getElementById('vu-url-status');
+    if (saveLI) saveLI.addEventListener('click', () => {
+      const v = (document.getElementById('vu-linkedin').value || '').trim();
+      if (!v) { toast('Enter a LinkedIn URL first.', 'warn'); return; }
+      quickUpdateUI({ linkedin_url: v }, urlStatus);
+    });
+    if (saveGH) saveGH.addEventListener('click', () => {
+      const v = (document.getElementById('vu-github').value || '').trim();
+      if (!v) { toast('Enter a GitHub URL first.', 'warn'); return; }
+      quickUpdateUI({ github_url: v }, urlStatus);
+    });
+    if (savePF) savePF.addEventListener('click', () => {
+      const v = (document.getElementById('vu-portfolio').value || '').trim();
+      if (!v) { toast('Enter a portfolio URL first.', 'warn'); return; }
+      quickUpdateUI({ portfolio_url: v }, urlStatus);
+    });
+
+    // Paste
+    const pasteBtn = document.getElementById('vu-paste-ingest');
+    const pasteStatus = document.getElementById('vu-paste-status');
+    if (pasteBtn) pasteBtn.addEventListener('click', () => {
+      const text = (document.getElementById('vu-paste-text').value || '').trim();
+      const label = (document.getElementById('vu-paste-label').value || '').trim();
+      if (!text) { toast('Paste some text first.', 'warn'); return; }
+      quickUpdateUI({ paste_text: text, paste_label: label || null }, pasteStatus);
+    });
+
+    // Resume upload
+    const resumeBtn = document.getElementById('vu-resume-ingest');
+    if (resumeBtn) resumeBtn.addEventListener('click', ingestResumeUI);
+
+    // Re-ingest all
+    const allBtn = document.getElementById('vu-reingest-all');
+    if (allBtn) allBtn.addEventListener('click', reingestAllSourcesUI);
+  }
+
+  // SETUP page integration: add "INGEST" link next to LinkedIn/GitHub/Portfolio
+  // URL inputs that triggers quick-update when the value differs from saved.
+  function bindSetupQuickIngestLinks() {
+    const form = document.getElementById('profile-form');
+    if (!form) return;
+    const fields = [
+      ['linkedin_url', 'linkedin'],
+      ['github_url', 'github'],
+      ['portfolio_url', 'portfolio'],
+    ];
+    for (const [name, kind] of fields) {
+      const input = form.elements.namedItem(name);
+      if (!input) continue;
+      // Build an INGEST button + tiny status, append into the input's label
+      const wrap = input.closest('label') || input.parentElement;
+      if (!wrap) continue;
+      const link = el('button', {
+        type: 'button',
+        class: 'btn btn-ghost small setup-ingest-link',
+        title: 'Fetch the URL now and re-extract claims with the LLM',
+      }, 'INGEST NOW');
+      const status = el('span', { class: 'muted small setup-ingest-status' });
+      link.addEventListener('click', async () => {
+        const v = (input.value || '').trim();
+        if (!v) { toast(`Enter a ${kind} URL first.`, 'warn'); return; }
+        link.disabled = true; link.textContent = 'INGESTING…';
+        status.textContent = '';
+        const payload = {};
+        payload[`${kind}_url`] = v;
+        const d = await quickUpdateUI(payload, status);
+        link.disabled = false; link.textContent = 'INGEST NOW';
+      });
+      wrap.appendChild(link);
+      wrap.appendChild(status);
+    }
+  }
+
+  // ============================================================
+  // INTERVIEW PREP + PRACTICE MODE
+  // ============================================================
+  async function loadInterview() {
+    const host = $('#iv-app-list');
+    if (!host) return;
+    host.innerHTML = '<p class="muted">Loading eligible applications…</p>';
+    const r = await api.get('/api/interview/eligible', { silent: true });
+    if (!r.ok) {
+      host.innerHTML = '<p class="ap-error">Could not load eligible applications: ' + (r.error || 'unknown') + '</p>';
+      return;
+    }
+    const apps = (r.data || []);
+    host.innerHTML = '';
+    if (!apps.length) {
+      host.appendChild(el('p', { class: 'muted',
+        text: 'No applications in the prep funnel yet. Move at least one app to prepared/applied/interview in PIPELINE.' }));
+      return;
+    }
+    for (const app of apps) {
+      const hasPacket = !!app.packet_id;
+      const statusPill = el('span', { class: 'iv-pill iv-pill-active',
+        text: String(app.status || '').toUpperCase() });
+      const packetPill = el('span', {
+        class: 'iv-pill ' + (hasPacket ? 'iv-pill-active' : 'iv-pill-warn'),
+        text: hasPacket ? 'PACKET READY' : 'NO PACKET',
+      });
+      const left = el('div', {}, [
+        el('div', { class: 'iv-q',
+          text: (app.job_title || ('application #' + app.application_id)) + ' · ' + (app.job_company || '—') }),
+        el('div', { class: 'iv-app-meta' }, [
+          statusPill, packetPill,
+          el('span', { text: 'application #' + app.application_id }),
+          el('span', { class: 'muted',
+            text: '  · ' + (app.practice_count || 0) + ' practice session(s)' }),
+        ]),
+      ]);
+      const actions = el('div', { class: 'iv-app-actions' }, [
+        hasPacket
+          ? el('button', { class: 'btn btn-secondary small', type: 'button',
+              onclick: () => viewPacket(app.application_id) }, 'VIEW PACKET')
+          : el('button', { class: 'btn btn-primary small', type: 'button',
+              onclick: (e) => generatePrep(app.application_id, e.target) }, 'GENERATE PREP PACKET'),
+        el('button', { class: 'btn btn-positive small', type: 'button',
+          onclick: () => startPractice(app.application_id) }, 'START PRACTICE'),
+      ]);
+      host.appendChild(el('div', { class: 'iv-app-card' }, [left, actions]));
+    }
+    // If the user clicked INTERVIEW PREP from the pipeline modal, auto-open
+    // that application's packet.
+    if (state.interviewFocusAppId) {
+      const target = state.interviewFocusAppId;
+      state.interviewFocusAppId = null;
+      // Defer so the eligible list renders first
+      setTimeout(() => viewPacket(target).catch(() => {}), 50);
+    }
+  }
+
+  async function generatePrep(appId, btn) {
+    const banner = $('#interview-banner');
+    if (banner) {
+      banner.classList.remove('hidden');
+      banner.classList.remove('banner-warn');
+      banner.classList.add('banner-muted');
+      banner.textContent = 'Generating prep packet… this calls your local LLM and can take 30-90s.';
+    }
+    if (btn) { btn.disabled = true; btn.textContent = 'GENERATING…'; }
+    const r = await api.post('/api/interview/prep/' + appId, {});
+    if (btn) { btn.disabled = false; btn.textContent = 'GENERATE PREP PACKET'; }
+    if (!r.ok) {
+      if (banner) {
+        banner.classList.remove('banner-muted');
+        banner.classList.add('banner-warn');
+        banner.textContent = 'Prep packet failed: ' + (r.error || 'unknown');
+      }
+      return;
+    }
+    if (banner) banner.textContent = 'Packet ready. All references cite Vault claims.';
+    toast('Prep packet generated.', 'success');
+    await loadInterview();
+    await renderPacket(r.data, r.llm_run_id);
+  }
+
+  async function viewPacket(appId) {
+    const r = await api.get('/api/interview/prep/' + appId, { silent: true });
+    if (!r.ok) {
+      toast('No packet yet — click GENERATE PREP PACKET.', 'warn');
+      return;
+    }
+    await renderPacket(r.data, r.data && r.data.llm_run_id);
+  }
+
+  async function renderPacket(packet, llmRunId) {
+    const card = $('#iv-packet-card');
+    const body = $('#iv-packet-body');
+    if (!card || !body) return;
+    card.style.display = '';
+    $('#iv-packet-title').textContent = 'Prep packet · application #' + packet.application_id +
+      ' · created ' + fmtRel(packet.created_at) + ' ago';
+    body.innerHTML = '<p class="muted">Loading claim references…</p>';
+
+    const claimMap = _ivBuildClaimIndex(packet);
+    await _ivFetchClaimTexts(claimMap);
+
+    body.innerHTML = '';
+    // Company brief
+    body.appendChild(el('div', { class: 'iv-section' }, [
+      el('h4', { text: 'Company brief (from JD only)' }),
+      el('p', { text: packet.company_brief || '(empty)' }),
+    ]));
+
+    // LLM run link
+    if (llmRunId || packet.llm_run_id) {
+      const rid = llmRunId || packet.llm_run_id;
+      body.appendChild(el('button', {
+        class: 'iv-llm-link',
+        onclick: () => openLLMRunModal(Number(rid)),
+        text: 'VIEW LLM REASONING #' + rid,
+      }));
+    }
+
+    const renderQList = (title, items, keyClaim, metaKey) => {
+      const list = el('ul', { class: 'iv-qlist' });
+      (items || []).forEach(q => {
+        const li = el('li', {});
+        const qLine = el('div', {}, [
+          el('span', { class: 'iv-q', text: q.question || '(missing question)' }),
+        ]);
+        if (keyClaim && q[keyClaim] != null) {
+          const pill = _ivClaimPill(q[keyClaim], claimMap);
+          if (pill) qLine.appendChild(pill);
+        }
+        li.appendChild(qLine);
+        if (metaKey && q[metaKey]) {
+          li.appendChild(el('div', { class: 'iv-q-meta',
+            text: (metaKey === 'target_competency' ? 'competency: ' :
+                   metaKey === 'skill_or_tool' ? 'skill/tool: ' :
+                   metaKey === 'judgement_axis' ? 'axis: ' : '') + q[metaKey] }));
+        }
+        list.appendChild(li);
+      });
+      return el('div', { class: 'iv-section' }, [
+        el('h4', { text: title }), list,
+      ]);
+    };
+
+    body.appendChild(renderQList(
+      'Behavioral questions (' + (packet.behavioral_questions_json || []).length + ')',
+      packet.behavioral_questions_json, 'suggested_claim_id', 'target_competency'));
+    body.appendChild(renderQList(
+      'Technical questions (' + (packet.technical_questions_json || []).length + ')',
+      packet.technical_questions_json, 'suggested_claim_id', 'skill_or_tool'));
+    body.appendChild(renderQList(
+      'Scenario questions (' + (packet.scenario_questions_json || []).length + ')',
+      packet.scenario_questions_json, null, 'judgement_axis'));
+
+    // STAR skeletons
+    const skSection = el('div', { class: 'iv-section' }, [el('h4', { text: 'STAR skeletons' })]);
+    (packet.star_skeletons_json || []).forEach(sk => {
+      const div = el('div', { class: 'iv-skeleton' });
+      div.appendChild(el('div', { class: 'iv-q' }, [
+        sk.behavioral_question || '(no question)',
+        _ivClaimPill(sk.situation_from_claim_id, claimMap) || el('span', { class: 'muted small', text: ' (no claim)' }),
+      ]));
+      const star = sk.draft_star || {};
+      div.appendChild(el('div', { class: 'iv-star-row' }, [
+        el('span', { text: 'S' }), el('span', { text: star.situation || '—' }),
+      ]));
+      div.appendChild(el('div', { class: 'iv-star-row' }, [
+        el('span', { text: 'T' }), el('span', { text: star.task || '—' }),
+      ]));
+      div.appendChild(el('div', { class: 'iv-star-row' }, [
+        el('span', { text: 'A' }), el('span', { text: star.action || '—' }),
+      ]));
+      div.appendChild(el('div', { class: 'iv-star-row' }, [
+        el('span', { text: 'R' }), el('span', { text: star.result || '—' }),
+      ]));
+      if (sk.situation_from_claim_id != null && claimMap[sk.situation_from_claim_id]) {
+        div.appendChild(el('div', { class: 'iv-claim-source',
+          text: 'Source claim #' + sk.situation_from_claim_id + ': ' + claimMap[sk.situation_from_claim_id] }));
+      }
+      skSection.appendChild(div);
+    });
+    body.appendChild(skSection);
+
+    card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  async function startPractice(appId) {
+    // Pre-load + open the modal so the user sees a status while we generate
+    // a packet if needed.
+    const modal = $('#practice-modal');
+    const body = $('#practice-body');
+    if (!modal || !body) return;
+    body.innerHTML = '<p class="muted">Starting practice session… this may generate a fresh packet if none exists.</p>';
+    $('#practice-progress').textContent = '—';
+    modal.classList.remove('hidden');
+
+    const r = await api.post('/api/interview/practice/' + appId + '/start',
+      { question_count: 5 });
+    if (!r.ok) {
+      body.innerHTML = '<p class="ap-error">Could not start practice: ' + (r.error || 'unknown') + '</p>';
+      return;
+    }
+    const d = r.data || {};
+    _practice.session_id = d.session_id;
+    _practice.application_id = appId;
+    _practice.packet_id = d.packet_id;
+    _practice.total = d.total_questions;
+    _practice.answered = 0;
+    _practice.currentTurn = d.first_question;
+    _practice.claimIndex = {};
+    // Eagerly fetch vault claims so the feedback pills can show text
+    const cr = await api.get('/api/vault/claims', { silent: true });
+    if (cr.ok) {
+      (cr.data || []).forEach(c => {
+        if (c && c.id != null) _practice.claimIndex[c.id] = c.claim_text || '';
+      });
+    }
+    renderPracticeTurn();
+  }
+
+  function renderPracticeTurn() {
+    const body = $('#practice-body');
+    const prog = $('#practice-progress');
+    const turn = _practice.currentTurn;
+    if (!turn) {
+      // Done — render summary
+      renderPracticeFinal();
+      return;
+    }
+    prog.textContent = 'Q ' + ((turn.turn_index ?? 0) + 1) + ' of ' + _practice.total;
+    body.innerHTML = '';
+    body.appendChild(el('div', { class: 'practice-q' }, [
+      el('div', { class: 'practice-q-type', text: turn.question_type || 'general' }),
+      el('div', { text: turn.question_text || '(missing question)' }),
+    ]));
+    body.appendChild(el('label', {}, [
+      'YOUR ANSWER',
+      el('textarea', {
+        id: 'practice-answer-text', class: 'practice-answer-area',
+        placeholder: 'Walk through your answer. STAR structure recommended.\nSituation — Task — Action — Result.',
+        rows: 8,
+      }),
+    ]));
+    body.appendChild(el('div', { class: 'form-actions' }, [
+      el('button', { class: 'btn btn-primary', type: 'button',
+        id: 'practice-submit-btn',
+        onclick: submitPracticeAnswer }, 'SUBMIT ANSWER'),
+      el('button', { class: 'btn btn-ghost', type: 'button',
+        onclick: () => { $('#practice-modal').classList.add('hidden'); loadInterview(); } }, 'SAVE & EXIT'),
+    ]));
+  }
+
+  async function submitPracticeAnswer() {
+    const ta = $('#practice-answer-text');
+    const btn = $('#practice-submit-btn');
+    if (!ta) return;
+    const txt = (ta.value || '').trim();
+    if (!txt) { toast('Type an answer first — even one sentence.', 'warn'); return; }
+    btn.disabled = true; btn.textContent = 'GRADING…';
+    const r = await api.post('/api/interview/practice/' + _practice.session_id + '/answer', {
+      turn_index: _practice.currentTurn.turn_index,
+      user_answer: txt,
+    });
+    btn.disabled = false; btn.textContent = 'SUBMIT ANSWER';
+    if (!r.ok) {
+      toast('Grading failed: ' + (r.error || 'unknown'), 'error');
+      return;
+    }
+    const d = r.data || {};
+    _practice.answered += 1;
+    renderPracticeFeedback(d);
+    // Save next turn ref for advance
+    _practice._next = d.next_question;
+  }
+
+  function renderPracticeFeedback(d) {
+    const body = $('#practice-body');
+    if (!body) return;
+    const f = d.feedback || {};
+    const turn = d.turn || {};
+    body.innerHTML = '';
+    $('#practice-progress').textContent =
+      'Q ' + ((turn.turn_index ?? 0) + 1) + ' of ' + _practice.total + ' · graded';
+
+    body.appendChild(el('div', { class: 'practice-q' }, [
+      el('div', { class: 'practice-q-type', text: turn.question_type || 'general' }),
+      el('div', { text: turn.question_text || '' }),
+    ]));
+    body.appendChild(el('div', { class: 'iv-section' }, [
+      el('h4', { text: 'Your answer' }),
+      el('pre', { class: 'codeblock', text: turn.user_answer || '' }),
+    ]));
+
+    const fb = el('div', { class: 'practice-feedback' });
+    fb.appendChild(el('div', { class: 'practice-score' }, [
+      el('span', { class: 'practice-score-val', text: String(f.score ?? '—') }),
+      el('span', { class: 'practice-score-meta', text: '/ 10' }),
+    ]));
+    if ((f.strengths || []).length) {
+      fb.appendChild(el('h5', { text: 'Strengths' }));
+      const ul = el('ul', {});
+      f.strengths.forEach(s => ul.appendChild(el('li', { text: s })));
+      fb.appendChild(ul);
+    }
+    if ((f.improvements || []).length) {
+      fb.appendChild(el('h5', { text: 'Improvements' }));
+      const ul = el('ul', {});
+      f.improvements.forEach(s => ul.appendChild(el('li', { text: s })));
+      fb.appendChild(ul);
+    }
+    if ((f.evidence_used || []).length) {
+      fb.appendChild(el('h5', { text: 'Evidence used (cited Vault claims)' }));
+      const pillRow = el('div', {});
+      f.evidence_used.forEach(cid => {
+        const txt = _practice.claimIndex[cid] || '';
+        pillRow.appendChild(el('span', {
+          class: 'practice-evidence-pill',
+          title: txt ? 'claim #' + cid + ': ' + txt : 'claim #' + cid,
+          onclick: () => showTextModal('Vault claim #' + cid, txt || '(text not loaded)'),
+          text: '[claim #' + cid + ']',
+        }));
+      });
+      fb.appendChild(pillRow);
+    }
+    if ((f.unverified_claims || []).length) {
+      fb.appendChild(el('h5', { text: 'Unverified claims (NOT in your Vault — flag honestly)' }));
+      const wrap = el('div', {});
+      f.unverified_claims.forEach(s => {
+        wrap.appendChild(el('span', { class: 'practice-unverified-pill', text: s }));
+      });
+      fb.appendChild(wrap);
+    }
+    if (f.rewrite_suggestion) {
+      fb.appendChild(el('h5', { text: 'STAR rewrite suggestion' }));
+      fb.appendChild(el('pre', { class: 'codeblock', text: f.rewrite_suggestion }));
+    }
+    if (d.llm_run_id) {
+      fb.appendChild(el('button', {
+        class: 'iv-llm-link', type: 'button',
+        onclick: () => openLLMRunModal(Number(d.llm_run_id)),
+        text: 'VIEW LLM REASONING #' + d.llm_run_id,
+      }));
+    }
+    body.appendChild(fb);
+
+    const isLast = !d.next_question;
+    body.appendChild(el('div', { class: 'form-actions' }, [
+      el('button', { class: 'btn btn-primary', type: 'button',
+        onclick: () => {
+          if (isLast) {
+            renderPracticeFinal();
+          } else {
+            _practice.currentTurn = d.next_question;
+            renderPracticeTurn();
+          }
+        },
+        text: isLast ? 'FINISH' : 'NEXT QUESTION' }),
+      el('button', { class: 'btn btn-ghost', type: 'button',
+        onclick: () => { $('#practice-modal').classList.add('hidden'); loadInterview(); } }, 'EXIT'),
+    ]));
+  }
+
+  async function renderPracticeFinal() {
+    const body = $('#practice-body');
+    if (!body) return;
+    const r = await api.get('/api/interview/practice/session/' + _practice.session_id, { silent: true });
+    const d = (r.ok && r.data) || {};
+    const session = d.session || {};
+    const turns = d.turns || [];
+    body.innerHTML = '';
+    body.appendChild(el('div', { class: 'practice-final' }, [
+      el('h4', { text: 'Mock interview complete' }),
+      el('div', { class: 'practice-final-score',
+        text: session.avg_score == null ? '—' : String(session.avg_score) }),
+      el('p', { class: 'muted', text: 'Average score across ' + (turns.length) + ' answered turn(s).' }),
+    ]));
+    // Per-turn recap
+    turns.forEach(t => {
+      const row = el('div', { class: 'iv-skeleton' }, [
+        el('div', { class: 'iv-q', text: 'Q' + ((t.turn_index ?? 0) + 1) + ' · ' + (t.question_text || '') }),
+        el('div', { class: 'iv-q-meta', text: 'score ' + (t.score == null ? '—' : t.score) +
+          ' · type ' + (t.question_type || 'general') }),
+      ]);
+      if (t.user_answer) {
+        row.appendChild(el('pre', { class: 'codeblock', text: t.user_answer }));
+      }
+      if (t.llm_run_id) {
+        row.appendChild(el('button', { class: 'iv-llm-link', type: 'button',
+          onclick: () => openLLMRunModal(Number(t.llm_run_id)),
+          text: 'VIEW LLM REASONING #' + t.llm_run_id }));
+      }
+      body.appendChild(row);
+    });
+    body.appendChild(el('div', { class: 'form-actions' }, [
+      el('button', { class: 'btn btn-primary', type: 'button',
+        onclick: () => { $('#practice-modal').classList.add('hidden'); loadInterview(); },
+        text: 'DONE' }),
+    ]));
+  }
+
+  function bindInterview() {
+    const btn = $('#iv-refresh');
+    if (btn) btn.addEventListener('click', loadInterview);
+    const close = $('#iv-packet-close');
+    if (close) close.addEventListener('click', () => {
+      $('#iv-packet-card').style.display = 'none';
+    });
+    const pclose = $('#practice-close-btn');
+    if (pclose) pclose.addEventListener('click', () => {
+      $('#practice-modal').classList.add('hidden');
+      loadInterview();
+    });
+  }
+
+
 
   document.addEventListener('DOMContentLoaded', init);
 })();

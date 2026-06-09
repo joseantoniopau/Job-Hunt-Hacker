@@ -11,7 +11,7 @@
     href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Serif:wght@400;600;700&display=swap"
     rel="stylesheet"
   />
-  <link rel="stylesheet" href="/styles.css?v=2026060903" />
+  <link rel="stylesheet" href="/styles.css?v=2026060906" />
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
   <meta http-equiv="Pragma" content="no-cache" />
   <meta http-equiv="Expires" content="0" />
@@ -39,11 +39,18 @@
         <a href="#pipeline"  data-tab="pipeline">PIPELINE</a>
         <a href="#inbox"     data-tab="inbox">INBOX</a>
         <a href="#calendar"  data-tab="calendar">CALENDAR</a>
+        <a href="#interview" data-tab="interview">INTERVIEW</a>
         <a href="#intel"     data-tab="intel">INTEL</a>
         <a href="#network"   data-tab="network">NETWORK</a>
+        <a href="#offers"    data-tab="offers">OFFERS</a>
         <a href="#settings"  data-tab="settings">SETTINGS</a>
       </nav>
       <div class="topbar-right">
+        <button id="vault-update-toggle" class="pill pill-blue" type="button"
+                title="Push a new URL, paste evidence, or re-ingest the vault with the LLM"
+                aria-haspopup="dialog" aria-expanded="false">
+          VAULT&nbsp;UPDATE
+        </button>
         <button id="llm-activity-toggle" class="pill pill-llm" type="button"
                 title="LLM activity — click to open the live panel"
                 aria-haspopup="dialog" aria-expanded="false">
@@ -87,6 +94,74 @@
       <div class="form-actions">
         <button class="btn btn-ghost" type="button" id="llm-run-modal-close">CLOSE</button>
       </div>
+    </div>
+  </div>
+
+  <!-- Always-on VAULT UPDATE modal -->
+  <div id="vault-update-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="vault-update-title">
+    <div class="modal-card vault-update-card">
+      <header class="vault-update-head">
+        <h3 id="vault-update-title">VAULT&nbsp;UPDATE</h3>
+        <button class="btn btn-ghost small" type="button" id="vault-update-close" aria-label="Close">CLOSE</button>
+      </header>
+      <p class="muted small">Push a new URL or paste evidence; the LLM re-extracts and verifies every claim against the source text. Existing claims for a re-ingested source are replaced.</p>
+
+      <section class="stack vault-update-section" aria-labelledby="vu-urls-h">
+        <h4 id="vu-urls-h">PROFILE&nbsp;URLS</h4>
+        <div class="three-col">
+          <label>LinkedIn URL
+            <input type="url" id="vu-linkedin" placeholder="https://linkedin.com/in/you" />
+          </label>
+          <label>GitHub URL
+            <input type="url" id="vu-github" placeholder="https://github.com/you" />
+          </label>
+          <label>Portfolio URL
+            <input type="url" id="vu-portfolio" placeholder="https://yoursite.com" />
+          </label>
+        </div>
+        <div class="form-actions">
+          <button type="button" class="btn btn-primary" id="vu-save-li">SAVE&nbsp;&amp;&nbsp;INGEST LINKEDIN</button>
+          <button type="button" class="btn btn-primary" id="vu-save-gh">SAVE&nbsp;&amp;&nbsp;INGEST GITHUB</button>
+          <button type="button" class="btn btn-primary" id="vu-save-pf">SAVE&nbsp;&amp;&nbsp;INGEST PORTFOLIO</button>
+        </div>
+        <div id="vu-url-status" class="status-line muted small"></div>
+      </section>
+
+      <section class="stack vault-update-section" aria-labelledby="vu-paste-h">
+        <h4 id="vu-paste-h">PASTE&nbsp;NEW&nbsp;EVIDENCE</h4>
+        <label>Label <em>(optional)</em>
+          <input type="text" id="vu-paste-label" placeholder="Stripe achievement / cert / portfolio summary&hellip;" />
+        </label>
+        <label>Evidence text
+          <textarea id="vu-paste-text" rows="6" placeholder="Paste any factual text describing what you built, shipped, led, or learned&hellip;"></textarea>
+        </label>
+        <div class="form-actions">
+          <button type="button" class="btn btn-primary" id="vu-paste-ingest">INGEST&nbsp;PASTE</button>
+        </div>
+        <div id="vu-paste-status" class="status-line muted small"></div>
+      </section>
+
+      <section class="stack vault-update-section" aria-labelledby="vu-resume-h">
+        <h4 id="vu-resume-h">UPLOAD&nbsp;NEW&nbsp;RESUME</h4>
+        <label>Resume file
+          <input type="file" id="vu-resume-file" accept=".pdf,.docx,.doc,.md,.txt,.html" />
+        </label>
+        <div class="form-actions">
+          <button type="button" class="btn btn-primary" id="vu-resume-ingest">INGEST&nbsp;RESUME</button>
+        </div>
+        <div id="vu-resume-status" class="status-line muted small"></div>
+      </section>
+
+      <section class="stack vault-update-section" aria-labelledby="vu-reingest-h">
+        <header class="vu-reingest-head">
+          <h4 id="vu-reingest-h">RE-INGEST&nbsp;VAULT&nbsp;WITH&nbsp;LLM</h4>
+          <button type="button" class="btn btn-secondary" id="vu-reingest-all">RE-INGEST&nbsp;ALL</button>
+        </header>
+        <p class="muted small">The LLM re-extracts claims for the selected source(s). Every claim is verified against the source text — fabrications are dropped before insertion.</p>
+        <div id="vu-sources-list" class="vu-sources-list" aria-live="polite">
+          <p class="muted small">Loading sources&hellip;</p>
+        </div>
+      </section>
     </div>
   </div>
 
@@ -234,6 +309,10 @@
           <span id="infer-status" class="status-line"></span>
         </div>
         <div id="infer-meta" class="infer-meta" hidden></div>
+        <div id="proposals-pills" class="proposals-pills" hidden>
+          <span class="muted small">Pending proposals:</span>
+          <ul id="proposals-pills-list" class="proposals-pills-list" aria-live="polite"></ul>
+        </div>
       </form>
 
       <!-- INGESTION CARDS -->
@@ -550,19 +629,51 @@
           <h3>Results</h3>
           <span id="results-count" class="muted small">&mdash;</span>
         </header>
+        <div class="form-actions" id="results-toolbar" style="gap:var(--s-2); flex-wrap:wrap; align-items:center;">
+          <button class="btn btn-primary small" type="button" id="llm-rerank-top-btn"
+            title="Ask the LLM to second-pass-score the top 30 deterministic-scored jobs. Honest about gaps. Takes 1–10 min.">
+            RERANK TOP 30 WITH LLM
+          </button>
+          <span id="llm-rerank-status" class="muted small"></span>
+          <span class="muted small" style="margin-left:auto;">SORT BY:</span>
+          <div class="sort-toggle" role="group" aria-label="Sort jobs by">
+            <button class="btn btn-secondary small sort-toggle-btn is-active"
+              type="button" data-sort-mode="deterministic"
+              title="Sort by the deterministic keyword-and-evidence score (default).">
+              DETERMINISTIC
+            </button>
+            <button class="btn btn-ghost small sort-toggle-btn"
+              type="button" data-sort-mode="llm"
+              title="Sort by the LLM semantic score (human gate: you chose this).">
+              LLM SEMANTIC
+            </button>
+          </div>
+        </div>
         <div class="table-wrap">
           <table class="data-table results" id="results-table">
             <thead>
               <tr>
                 <th>RANK</th><th>TITLE</th><th>COMPANY</th><th>LOCATION</th>
-                <th>SCORE</th><th>SALARY</th><th>POSTED</th><th>SOURCE</th>
-                <th>BADGES</th><th>URL</th>
+                <th>SCORE</th><th>LLM</th><th>SALARY</th><th>POSTED</th><th>SOURCE</th>
+                <th>BADGES</th><th>ACTIONS</th><th>URL</th>
               </tr>
             </thead>
-            <tbody><tr><td colspan="10" class="empty">No results yet &mdash; run a search above to populate.</td></tr></tbody>
+            <tbody><tr><td colspan="12" class="empty">No results yet &mdash; run a search above to populate.</td></tr></tbody>
           </table>
         </div>
       </section>
+
+      <!-- LLM rerank explanation modal (per-row drill-in) -->
+      <div id="llm-rerank-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="llm-rerank-modal-title">
+        <div class="modal-card">
+          <h3 id="llm-rerank-modal-title">LLM SEMANTIC SCORE</h3>
+          <div id="llm-rerank-modal-body" class="stack">Loading&hellip;</div>
+          <div class="form-actions">
+            <button class="btn btn-secondary" type="button" id="llm-rerank-view-run">VIEW LLM REASONING</button>
+            <button class="btn btn-ghost" type="button" id="llm-rerank-modal-close">CLOSE</button>
+          </div>
+        </div>
+      </div>
 
       <section id="job-detail" class="card job-detail hidden">
         <header class="card-head">
@@ -794,8 +905,52 @@ Select a resume to preview.
     </section>
 
     <!-- =========================================================
-         08 · SETTINGS
+         08 · INTERVIEW (prep packets + practice / mock interview)
          ========================================================= -->
+    <section class="page" data-page="interview" aria-labelledby="interview-title">
+      <h2 class="page-title" id="interview-title"><span class="page-num">08 /</span>INTERVIEW</h2>
+      <p class="page-sub">Generate LLM-grounded prep packets and run mock interviews. Every question and STAR skeleton points to a real claim in your Vault.</p>
+
+      <div id="interview-banner" class="banner banner-muted hidden"></div>
+
+      <section class="card">
+        <header class="card-head">
+          <h3>Applications eligible for prep</h3>
+          <button class="btn btn-ghost small" id="iv-refresh">REFRESH</button>
+        </header>
+        <p class="muted small">Pipeline status in {prepared, applied, screened, replied, interview, offer}.</p>
+        <div id="iv-app-list" class="stack">Loading&hellip;</div>
+      </section>
+
+      <section class="card" id="iv-packet-card" style="display:none;">
+        <header class="card-head">
+          <h3 id="iv-packet-title">Prep packet</h3>
+          <div class="form-actions" style="margin:0;">
+            <button class="btn btn-ghost small" id="iv-packet-close">CLOSE</button>
+          </div>
+        </header>
+        <div id="iv-packet-honesty" class="banner banner-muted">
+          All questions and STAR skeletons reference claims in your Evidence Vault.
+          Hover/click <code>[claim #ID]</code> to see the source.
+        </div>
+        <div id="iv-packet-body" class="stack"></div>
+      </section>
+    </section>
+
+    <!-- ================== PRACTICE / MOCK INTERVIEW MODAL ================== -->
+    <div id="practice-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="practice-modal-title">
+      <div class="modal-card practice-modal-card">
+        <header class="card-head" style="padding:0 0 var(--s-2) 0;">
+          <h3 id="practice-modal-title">Mock interview</h3>
+          <div class="form-actions" style="margin:0;">
+            <span id="practice-progress" class="muted small">&mdash;</span>
+            <button class="btn btn-ghost small" id="practice-close-btn">CLOSE</button>
+          </div>
+        </header>
+        <div id="practice-body" class="stack"></div>
+      </div>
+    </div>
+
     <!-- =========================================================
          09 · INTEL (market intelligence + velocity + gaps + effectiveness)
          ========================================================= -->
@@ -909,6 +1064,74 @@ Select a resume to preview.
             <tbody><tr><td colspan="6" class="empty">No connections yet.</td></tr></tbody>
           </table>
         </div>
+      </section>
+    </section>
+
+    <!-- =========================================================
+         11 · OFFERS — LLM offer analysis + comparison
+         ========================================================= -->
+    <section class="page" data-page="offers" aria-labelledby="offers-title">
+      <h2 class="page-title" id="offers-title"><span class="page-num">11 /</span>OFFERS</h2>
+      <p class="page-sub">
+        Paste an offer letter. We'll break down comp, compare to market, give
+        you 3 counter angles, and flag legal pitfalls &mdash; all grounded in
+        your evidence vault.
+      </p>
+
+      <section class="card">
+        <header class="card-head">
+          <h3>Paste new offer</h3>
+          <span class="muted small">link to an application for richer market + job context</span>
+        </header>
+        <form id="offer-form" class="stack">
+          <label>
+            Application (optional)
+            <select id="offer-app-select">
+              <option value="">No application &mdash; analyze offer in isolation</option>
+            </select>
+          </label>
+          <label>
+            Offer text
+            <textarea id="offer-text" rows="10" placeholder="Paste the full offer letter, recruiter email, or your notes from the verbal offer call. The more detail, the sharper the analysis."></textarea>
+          </label>
+          <div class="form-actions">
+            <button class="btn btn-primary" type="submit" id="offer-analyze-btn">ANALYZE OFFER</button>
+            <span id="offer-status" class="status-line"></span>
+          </div>
+        </form>
+      </section>
+
+      <section class="card">
+        <header class="card-head">
+          <h3>Past analyses</h3>
+          <div class="form-actions" style="margin:0;">
+            <button class="btn btn-secondary small" id="offers-compare-btn" disabled>COMPARE SELECTED</button>
+            <button class="btn btn-ghost small" id="offers-refresh">REFRESH</button>
+          </div>
+        </header>
+        <div id="offers-list" class="stack">
+          <p class="muted">No analyses yet. Paste an offer above to get started.</p>
+        </div>
+      </section>
+
+      <section class="card hidden" id="offer-detail-card">
+        <header class="card-head">
+          <h3 id="offer-detail-title">Analysis</h3>
+          <div class="form-actions" style="margin:0;">
+            <button class="btn btn-ghost small" id="offer-detail-close">CLOSE</button>
+          </div>
+        </header>
+        <div id="offer-detail-body"></div>
+      </section>
+
+      <section class="card hidden" id="offer-compare-card">
+        <header class="card-head">
+          <h3>Comparison</h3>
+          <div class="form-actions" style="margin:0;">
+            <button class="btn btn-ghost small" id="offer-compare-close">CLOSE</button>
+          </div>
+        </header>
+        <div id="offer-compare-body"></div>
       </section>
     </section>
 
@@ -1326,10 +1549,28 @@ Select a resume to preview.
     </div>
   </div>
 
+  <!-- =========================================================
+       PROFILE PROPOSAL REVIEW MODAL — human gate for LLM inference
+       ========================================================= -->
+  <div id="proposal-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="proposal-modal-title">
+    <div class="modal-card proposal-modal-card">
+      <h3 id="proposal-modal-title">PROFILE PROPOSAL &mdash; REVIEW</h3>
+      <p id="proposal-modal-intro" class="muted small"></p>
+      <div id="proposal-modal-body" class="proposal-fields"></div>
+      <div class="form-actions">
+        <button class="btn btn-primary" type="button" id="proposal-accept-selected">ACCEPT SELECTED</button>
+        <button class="btn btn-secondary" type="button" id="proposal-use-all-llm">USE ALL LLM</button>
+        <button class="btn btn-secondary" type="button" id="proposal-use-all-det">USE ALL DETERMINISTIC</button>
+        <button class="btn btn-warn" type="button" id="proposal-reject">REJECT</button>
+        <button class="btn btn-ghost" type="button" id="proposal-close">CLOSE</button>
+      </div>
+    </div>
+  </div>
+
   <footer class="site-footer">
     <p>JOB&nbsp;HUNT&nbsp;HACKER &middot; local skill, MIT licensed &middot; never invents career facts</p>
   </footer>
 
-  <script src="/app.js?v=2026060903" defer></script>
+  <script src="/app.js?v=2026060906" defer></script>
 </body>
 </html>

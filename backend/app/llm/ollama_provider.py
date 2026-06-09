@@ -5,6 +5,7 @@ Endpoint: {OLLAMA_BASE_URL}/api/chat — returns `{message: {content: ...}}`.
 from __future__ import annotations
 
 import logging
+import os
 
 import httpx
 
@@ -14,7 +15,11 @@ from .base import LLMProvider
 log = logging.getLogger("jhh.llm.ollama")
 
 _DEFAULT_MODEL = "llama3"
-_DEFAULT_TIMEOUT = 120.0  # local models can be slow
+# Local models can be slow, especially 70B-class quantizations doing
+# multi-thousand-token JSON output (offer analysis, resume tailor,
+# interview prep packets at max_tokens=3500). Default is 12 minutes;
+# override via JHH_OLLAMA_TIMEOUT (seconds).
+_DEFAULT_TIMEOUT = float(os.getenv("JHH_OLLAMA_TIMEOUT", "720.0"))
 
 
 class OllamaProvider(LLMProvider):

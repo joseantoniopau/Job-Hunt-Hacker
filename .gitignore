@@ -48,3 +48,6 @@ build/
 node_modules/
 data/calendar_ics/
 data/jhh.db.bak
+
+# claude code worktrees + task state — local only
+.claude/
