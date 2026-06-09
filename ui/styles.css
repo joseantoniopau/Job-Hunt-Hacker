@@ -1684,9 +1684,14 @@ label[data-required]::after {
   inset: 0;
   z-index: 100;
   background: rgba(10,10,10,0.65);
+  /* The whole backdrop scrolls when the card is taller than viewport.
+     align-items:flex-start instead of center prevents clipping at top
+     when the card grows past the screen height. */
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   padding: var(--s-4);
   animation: modal-fade 180ms var(--ease) both;
 }
@@ -1701,7 +1706,23 @@ label[data-required]::after {
   padding: var(--s-5);
   max-width: 560px;
   width: 100%;
+  /* Center vertically when there's room; flex-start above lets us push
+     the card to the top so the user can scroll to reach the bottom. */
+  margin: auto;
   animation: modal-pop 200ms var(--ease) both;
+}
+/* Autopilot modal has many fields — give it a wider max + tighter top
+   margin so the START button is always reachable without horizontal scroll. */
+#autopilot-modal .modal-card {
+  max-width: 720px;
+  margin-top: var(--s-4);
+  margin-bottom: var(--s-4);
+}
+/* Phone: shrink padding so more of the form fits on screen */
+@media (max-width: 600px) {
+  .modal { padding: var(--s-3); }
+  .modal-card { padding: var(--s-4); }
+  #autopilot-modal .modal-card { padding: var(--s-3); }
 }
 @keyframes modal-pop {
   from { transform: translateY(8px) scale(0.98); }
