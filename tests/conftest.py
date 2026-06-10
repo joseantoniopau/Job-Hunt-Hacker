@@ -42,4 +42,19 @@ def _isolate_db() -> None:
             os.environ[env] = str(d)
 
 
+def _isolate_llm() -> None:
+    """Force the template LLM provider for tests unless the runner opts in
+    to live inference with JHH_TEST_LIVE_LLM=1.
+
+    Without this, a developer whose .env points at a real provider (e.g.
+    JHH_LLM_PROVIDER=ollama with a 70B model and a 12-minute timeout) gets
+    live inference inside unit tests — the suite slows from ~2 minutes to
+    hours and assertions depend on nondeterministic model output.
+    """
+    if os.environ.get("JHH_TEST_LIVE_LLM") == "1":
+        return
+    os.environ["JHH_LLM_PROVIDER"] = "template"
+
+
 _isolate_db()
+_isolate_llm()

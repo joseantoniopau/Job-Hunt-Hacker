@@ -89,7 +89,9 @@ class Settings:
     # compliance / auto-apply
     auto_apply_enabled: bool = field(default_factory=lambda: _bool("JHH_AUTO_APPLY_ENABLED", False))
     auto_apply_daily_cap: int = field(default_factory=lambda: _int("JHH_AUTO_APPLY_DAILY_CAP", 5))
-    auto_apply_min_score: int = field(default_factory=lambda: _int("JHH_AUTO_APPLY_MIN_SCORE", 85))
+    # Clamped to [0, 100]: compliance divides by 100 to get a fraction, so
+    # an out-of-range env value would silently break the score gate.
+    auto_apply_min_score: int = field(default_factory=lambda: max(0, min(100, _int("JHH_AUTO_APPLY_MIN_SCORE", 85))))
     default_mode: str = field(default_factory=lambda: _env("JHH_DEFAULT_MODE", "assisted"))
 
     def __post_init__(self) -> None:

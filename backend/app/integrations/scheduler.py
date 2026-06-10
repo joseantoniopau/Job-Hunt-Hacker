@@ -111,6 +111,59 @@ def create_saved_search(label: str, query: dict, frequency_hours: int = 24, enab
     return sid
 
 
+def update_saved_search(saved_search_id: int, *, enabled: bool | None = None,
+                        frequency_hours: int | None = None) -> dict | None:
+    """Update a saved search's enabled flag and/or cadence, keeping the
+    APScheduler job in sync: disable removes the job, enable (re)registers
+    it, and a cadence change reschedules. Returns the updated row, or
+    None if the id doesn't exist."""
+    conn = get_conn()
+    row = conn.execute(
+        "SELECT * FROM saved_search WHERE id = ?", (int(saved_search_id),)
+    ).fetchone()
+    if not row:
+        return None
+    rec = row_to_dict(row)
+
+    new_enabled = rec.get("enabled") if enabled is None else (1 if enabled else 0)
+    new_freq = int(rec.get("frequency_hours") or 24) if frequency_hours is None else int(frequency_hours)
+    with tx() as c:
+        c.execute(
+            "UPDATE saved_search SET enabled = ?, frequency_hours = ? WHERE id = ?",
+            (new_enabled, new_freq, int(saved_search_id)),
+        )
+    try:
+        audit("saved_search_update", "saved_search", int(saved_search_id),
+              enabled=bool(new_enabled), frequency_hours=new_freq)
+    except Exception:
+        pass
+
+    job_id = f"saved_search_{int(saved_search_id)}"
+    s = _get_scheduler()
+    if s is not None:
+        if not new_enabled:
+            try:
+                if s.get_job(job_id):
+                    s.remove_job(job_id)
+            except Exception:
+                pass
+        elif is_running():
+            query = rec.get("query_json") or {}
+            if isinstance(query, str):
+                try:
+                    query = json.loads(query)
+                except Exception:
+                    query = {}
+            # replace_existing=True in the register helper makes this a
+            # reschedule when the job already exists.
+            _register_one_saved_search(int(saved_search_id), rec.get("label") or "",
+                                       query, new_freq)
+
+    rec["enabled"] = new_enabled
+    rec["frequency_hours"] = new_freq
+    return rec
+
+
 def delete_saved_search(saved_search_id: int) -> bool:
     s = _get_scheduler()
     job_id = f"saved_search_{int(saved_search_id)}"

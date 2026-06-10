@@ -5,7 +5,7 @@ import logging
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from ..services import networking
 
@@ -15,7 +15,7 @@ router = APIRouter(prefix="/api", tags=["connections"])
 
 
 class ConnectionCreate(BaseModel):
-    name: str
+    name: str = Field(..., min_length=1, max_length=200)
     relationship: Optional[str] = None
     company: Optional[str] = None
     role: Optional[str] = None

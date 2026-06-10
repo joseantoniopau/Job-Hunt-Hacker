@@ -424,7 +424,10 @@ def _explain(job: dict, scores: dict, ats: dict) -> str:
         # Skip LLM polish for the template provider — it just echoes
         if getattr(provider, "name", "") in ("", "template"):
             return base
-        polished = provider.complete(
+        from ..llm.observability import observed_complete
+        polished, _run_id = observed_complete(
+            provider,
+            stage="job_score_polish",
             system=(
                 "You polish job-match explanations. Keep facts identical; tighten phrasing; "
                 "2-3 sentences max; no exclamation marks; no emojis."
@@ -432,6 +435,8 @@ def _explain(job: dict, scores: dict, ats: dict) -> str:
             user=f"Original explanation:\n{base}",
             max_tokens=180,
             temperature=0.2,
+            target_type="job_posting",
+            target_id=int(job.get("id") or 0) or None,
         )
         polished = (polished or "").strip()
         if polished and len(polished) < len(base) * 3:

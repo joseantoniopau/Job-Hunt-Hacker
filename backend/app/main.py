@@ -73,8 +73,8 @@ except Exception as exc:  # noqa: BLE001
 # Observability: request-id middleware + prometheus metrics middleware +
 # structured logging. All degrade to no-op when optional deps are missing.
 try:
-    from .middleware.structured_logging import init_structured_logging
-    init_structured_logging()
+    from .middleware.structured_logging import configure_logging
+    configure_logging()
 except Exception as exc:  # noqa: BLE001
     log.warning("structured logging init failed: %s", exc)
 

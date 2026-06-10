@@ -21,8 +21,8 @@ class UserProfileIn(BaseModel):
     preferred_locations: list[str] = Field(default_factory=list)
     remote_preference: Optional[str] = None
     employment_types: list[str] = Field(default_factory=list)
-    minimum_salary: Optional[int] = None
-    preferred_salary: Optional[int] = None
+    minimum_salary: Optional[int] = Field(default=None, ge=0)
+    preferred_salary: Optional[int] = Field(default=None, ge=0)
     currency: str = "USD"
     seniority_targets: list[str] = Field(default_factory=list)
     industries: list[str] = Field(default_factory=list)

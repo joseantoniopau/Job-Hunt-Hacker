@@ -51,6 +51,7 @@ def resume(body: ResumeBody) -> dict:
     # to edit .env and restart.
     compliance.resume(i_understand=True)
     settings.auto_apply_enabled = True
+    _persist_enabled_flag(True)
     audit("auto_apply_enabled", "settings", None, source="ui")
     return {"ok": True, "detail": "auto-apply enabled and kill switch lifted",
             "data": compliance.status_snapshot()}
@@ -60,9 +61,20 @@ def resume(body: ResumeBody) -> dict:
 def disable() -> dict:
     """Disable auto-apply at runtime. /run will refuse subsequent calls."""
     settings.auto_apply_enabled = False
+    _persist_enabled_flag(False)
     audit("auto_apply_disabled", "settings", None, source="ui")
     return {"ok": True, "detail": "auto-apply disabled",
             "data": compliance.status_snapshot()}
+
+
+def _persist_enabled_flag(enabled: bool) -> None:
+    """Write the toggle through to .env so it survives a restart — without
+    this, a UI enable/disable silently reverts on the next boot."""
+    try:
+        from .settings import _write_env
+        _write_env({"JHH_AUTO_APPLY_ENABLED": "true" if enabled else "false"})
+    except Exception as exc:  # noqa: BLE001
+        log.warning("could not persist JHH_AUTO_APPLY_ENABLED to .env: %s", exc)
 
 
 @router.get("/queue")

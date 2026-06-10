@@ -21,6 +21,14 @@
 
   // ----- api helper -----
   const api = {
+    // Count of in-flight requests; drives the global activity bar so the
+    // user always sees when the app is talking to the backend.
+    _inflight: 0,
+    _bump(delta) {
+      this._inflight = Math.max(0, this._inflight + delta);
+      const bar = document.getElementById('activity-bar');
+      if (bar) bar.classList.toggle('active', this._inflight > 0);
+    },
     async _req(method, path, body, opts = {}) {
       const init = { method, headers: {} };
       if (body !== undefined && !(body instanceof FormData)) {
@@ -29,6 +37,7 @@
       } else if (body instanceof FormData) {
         init.body = body;
       }
+      this._bump(1);
       try {
         const r = await fetch(path, init);
         const ctype = r.headers.get('content-type') || '';
@@ -47,6 +56,8 @@
       } catch (e) {
         if (!opts.silent) toast(`Network error: ${e.message}`, 'error');
         return { ok: false, error: e.message };
+      } finally {
+        this._bump(-1);
       }
     },
     get(p, opts)        { return this._req('GET', p, undefined, opts); },
@@ -168,6 +179,7 @@
     $$('.tabs a').forEach(a => a.classList.toggle('active', a.dataset.tab === name));
     window.scrollTo({ top: 0, behavior: 'instant' });
     if (location.hash !== '#' + name) history.replaceState(null, '', '#' + name);
+    try { localStorage.setItem('jhh.lastPage', name); } catch (_) {}
 
     // page-specific lazy loads
     if (name === 'setup')     loadProfile();
@@ -189,6 +201,79 @@
       e.preventDefault();
       switchPage(a.dataset.tab);
     }));
+  }
+
+  // ----- keyboard shortcuts -----
+  // `g` then a letter jumps to a tab; `/` focuses job search; `[`/`]` cycle
+  // tabs; `?` shows the cheat-sheet; Esc closes whatever is open. All
+  // shortcuts are inert while typing in a field.
+  const GOTO_MAP = {
+    l: 'landing',  u: 'setup',    v: 'vault',   d: 'dashboard',
+    r: 'resume',   p: 'pipeline', i: 'inbox',   c: 'calendar',
+    w: 'interview', t: 'intel',   n: 'network', o: 'offers',
+    s: 'settings',
+  };
+  let _gotoArmed = 0;
+
+  function closeTopmost() {
+    const openModal = $$('.modal').find(m => !m.classList.contains('hidden'));
+    if (openModal) { openModal.classList.add('hidden'); return true; }
+    const detail = $('#job-detail');
+    if (detail && !detail.classList.contains('hidden')) {
+      detail.classList.add('hidden');
+      return true;
+    }
+    return false;
+  }
+
+  function toggleShortcutsModal(force) {
+    const m = $('#shortcuts-modal');
+    if (!m) return;
+    const show = force !== undefined ? force : m.classList.contains('hidden');
+    m.classList.toggle('hidden', !show);
+  }
+
+  function bindKeyboard() {
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') { closeTopmost(); return; }
+      // Never hijack typing, IME composition, or chorded browser shortcuts.
+      const t = e.target;
+      if (e.ctrlKey || e.metaKey || e.altKey || e.isComposing) return;
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' ||
+                t.tagName === 'SELECT' || t.isContentEditable)) return;
+
+      const now = Date.now();
+      if (_gotoArmed && now - _gotoArmed < 1200) {
+        _gotoArmed = 0;
+        const dest = GOTO_MAP[e.key.toLowerCase()];
+        if (dest) { e.preventDefault(); switchPage(dest); }
+        return;
+      }
+
+      if (e.key === 'g') { _gotoArmed = now; return; }
+      if (e.key === '?') { e.preventDefault(); toggleShortcutsModal(); return; }
+      if (e.key === '/') {
+        e.preventDefault();
+        switchPage('dashboard');
+        const q = $('#search-form input[name="query"]');
+        if (q) q.focus();
+        return;
+      }
+      if (e.key === '[' || e.key === ']') {
+        e.preventDefault();
+        const idx = PAGES.indexOf(state.page);
+        const next = e.key === ']'
+          ? PAGES[(idx + 1) % PAGES.length]
+          : PAGES[(idx - 1 + PAGES.length) % PAGES.length];
+        switchPage(next);
+      }
+    });
+    const closeBtn = $('#shortcuts-close');
+    if (closeBtn) closeBtn.addEventListener('click', () => toggleShortcutsModal(false));
+    const m = $('#shortcuts-modal');
+    if (m) m.addEventListener('click', (e) => { if (e.target === m) toggleShortcutsModal(false); });
+    const hint = $('#kbd-hint');
+    if (hint) hint.addEventListener('click', () => toggleShortcutsModal(true));
   }
 
   // ----- health + settings (boot) -----
@@ -994,6 +1079,20 @@
       ]);
       body.appendChild(tr);
     }
+    applyClaimsFilter();
+  }
+  // Same pattern as the jobs quick filter: client-side narrow over the
+  // rendered claim rows (the type/verified selects already filter
+  // server-side; this handles free text).
+  function applyClaimsFilter() {
+    const input = $('#claims-quick-filter');
+    const body = $('#vault-claims tbody');
+    if (!input || !body) return;
+    const needle = (input.value || '').trim().toLowerCase();
+    for (const tr of $$('tr', body)) {
+      if (tr.querySelector('td.empty')) continue;
+      tr.classList.toggle('hidden', !!needle && !tr.textContent.toLowerCase().includes(needle));
+    }
   }
   async function patchClaim(id, payload) {
     const r = await api.patch('/api/vault/claims/' + id, payload);
@@ -1006,6 +1105,8 @@
   }
   function bindVault() {
     $('#vault-refresh').addEventListener('click', loadVault);
+    const cf = $('#claims-quick-filter');
+    if (cf) cf.addEventListener('input', applyClaimsFilter);
     $('#claim-type').addEventListener('change', loadVaultClaims);
     $('#claim-verified').addEventListener('change', loadVaultClaims);
     $('#claim-allowed').addEventListener('change', loadVaultClaims);
@@ -1092,6 +1193,39 @@
     updateSortToggleUI();
   }
 
+  // Client-side text filter over the rendered jobs table. Matches against
+  // the full row text (title/company/location/source/badges) so the user
+  // can narrow 200 results to "remote staff" without another server call.
+  function applyJobsFilter() {
+    const input = $('#jobs-quick-filter');
+    const body = $('#results-table tbody');
+    if (!body) return;
+    const needle = ((input && input.value) || '').trim().toLowerCase();
+    const rows = $$('tr[data-job-id]', body);
+    let visible = 0;
+    for (const tr of rows) {
+      const hit = !needle || tr.textContent.toLowerCase().includes(needle);
+      tr.classList.toggle('hidden', !hit);
+      if (hit) visible++;
+    }
+    const countEl = $('#results-count');
+    if (countEl && rows.length) {
+      const llmCount = Object.keys(state.llmScores || {}).length;
+      countEl.textContent = needle
+        ? `${visible} / ${rows.length} shown · ${llmCount} LLM-scored`
+        : `${rows.length} stored · ${llmCount} LLM-scored`;
+    }
+  }
+
+  function bindJobsFilter() {
+    const input = $('#jobs-quick-filter');
+    if (!input) return;
+    input.addEventListener('input', applyJobsFilter);
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') { input.value = ''; applyJobsFilter(); input.blur(); e.stopPropagation(); }
+    });
+  }
+
   function renderJobsTable() {
     const body = $('#results-table tbody');
     if (!body) return;
@@ -1150,6 +1284,7 @@
       ]);
       body.appendChild(tr);
     });
+    applyJobsFilter();
   }
 
   function renderLLMScoreCell(jobId, llmRow) {
@@ -2926,6 +3061,8 @@
         el('td', { text: s.enabled ? 'yes' : 'no' }),
         el('td', {}, [
           el('button', { class: 'btn btn-ghost small', onclick: () => runSavedSearch(s.id) }, 'RUN NOW'),
+          el('button', { class: 'btn btn-ghost small', onclick: () => toggleSavedSearch(s.id, !s.enabled) },
+             s.enabled ? 'PAUSE' : 'RESUME'),
           el('button', { class: 'btn btn-ghost small', onclick: () => deleteSavedSearch(s.id) }, 'DELETE'),
         ]),
       ]));
@@ -2962,6 +3099,14 @@
       toast('Saved search done.', 'success');
       loadSavedSearches();
       loadJobs();
+    }
+  }
+
+  async function toggleSavedSearch(sid, enabled) {
+    const r = await api.patch('/api/scheduler/saved-searches/' + sid, { enabled });
+    if (r.ok) {
+      toast(enabled ? 'Saved search resumed.' : 'Saved search paused.', 'success');
+      loadSavedSearches();
     }
   }
 
@@ -3346,6 +3491,7 @@
     bindCareerSnapshot();
     bindBaseResume();
     bindDashboardSelection();
+    bindJobsFilter();
     bindUrlIngestStatus();
     refreshWeightTotal();
     bootStatus();
@@ -3354,8 +3500,13 @@
     bindVaultQuickUpdate();
     bindSetupQuickIngestLinks();
 
-    const start = (location.hash || '#landing').replace('#', '');
+    // Explicit hash wins; otherwise resume wherever the user left off.
+    let start = (location.hash || '').replace('#', '');
+    if (!start) {
+      try { start = localStorage.getItem('jhh.lastPage') || ''; } catch (_) {}
+    }
     switchPage(PAGES.includes(start) ? start : 'landing');
+    bindKeyboard();
 
     // populate availability grid even when calendar tab not yet visited
     renderAvailGrid();
@@ -3698,8 +3849,6 @@
 
   async function deleteOffer(id) {
     if (!confirm('Delete this offer analysis?')) return;
-    // No DELETE endpoint — soft-delete by leaving it (the user can ignore).
-    // For now, send a fetch attempt; if not supported, just re-load and show a toast.
     try {
       const r = await fetch('/api/offers/' + id, { method: 'DELETE' });
       if (r.ok) {

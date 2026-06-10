@@ -52,6 +52,23 @@ def create_search(body: SavedSearchCreate) -> dict:
     return {"ok": True, "data": {"id": sid}}
 
 
+class SavedSearchUpdate(BaseModel):
+    enabled: Optional[bool] = None
+    frequency_hours: Optional[int] = Field(default=None, ge=1, le=8760)
+
+
+@router.patch("/saved-searches/{sid}")
+def update_search(sid: int, body: SavedSearchUpdate) -> dict:
+    if body.enabled is None and body.frequency_hours is None:
+        raise HTTPException(400, "nothing to update: provide enabled and/or frequency_hours")
+    rec = sched.update_saved_search(
+        int(sid), enabled=body.enabled, frequency_hours=body.frequency_hours,
+    )
+    if rec is None:
+        raise HTTPException(404, f"saved_search {sid} not found")
+    return {"ok": True, "data": rec}
+
+
 @router.delete("/saved-searches/{sid}")
 def delete_search(sid: int) -> dict:
     ok = sched.delete_saved_search(int(sid))

@@ -30,10 +30,9 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 # ----------------------------------------------------------------------------
-# Idempotent DDL — we don't know the exact column shape Subagents A + D will
-# settle on, so we provision generous, generic columns. The app's
-# ``_ensure_column`` helper can layer additional columns on top at runtime
-# without breaking this baseline.
+# Idempotent DDL — mirrors backend/app/db.py exactly. db.py is the
+# authoritative schema (it bootstraps at startup); this migration exists so
+# alembic-managed databases converge on the same shape.
 # ----------------------------------------------------------------------------
 _DDL = [
     # audit_retention_state
@@ -65,48 +64,55 @@ _DDL = [
         UNIQUE(adapter, cache_key)
     )
     """,
-    # gap_event
+    # gap_event — MUST stay identical to backend/app/db.py, which bootstraps
+    # the authoritative schema at startup with CREATE TABLE IF NOT EXISTS.
+    # A divergent shape here either never applies (table already exists) or,
+    # on a fresh DB migrated before first app start, creates columns the app
+    # doesn't expect.
     """
     CREATE TABLE IF NOT EXISTS gap_event (
         id              INTEGER PRIMARY KEY AUTOINCREMENT,
-        job_id          TEXT,
-        gap_kind        TEXT NOT NULL,
-        skill           TEXT,
-        severity        REAL,
-        detected_at     REAL DEFAULT (strftime('%s','now')),
-        resolved_at     REAL,
-        metadata        TEXT
+        ts              REAL NOT NULL,
+        job_id          INTEGER,
+        missing_keyword TEXT NOT NULL,
+        FOREIGN KEY (job_id) REFERENCES job_posting(id) ON DELETE CASCADE
     )
     """,
-    # effectiveness_event
+    # effectiveness_event — same contract: keep identical to db.py.
     """
     CREATE TABLE IF NOT EXISTS effectiveness_event (
         id              INTEGER PRIMARY KEY AUTOINCREMENT,
-        action          TEXT NOT NULL,
-        subject_id      TEXT,
-        outcome         TEXT,
-        score           REAL,
-        occurred_at     REAL DEFAULT (strftime('%s','now')),
-        metadata        TEXT
+        ts              REAL NOT NULL,
+        application_id  INTEGER,
+        resume_id       INTEGER,
+        outcome         TEXT NOT NULL,
+        notes           TEXT,
+        FOREIGN KEY (application_id) REFERENCES application(id) ON DELETE CASCADE
     )
     """,
 ]
 
-# Useful indexes for the high-volume tables.
+# Useful indexes for the high-volume tables. Index only columns that exist
+# in the db.py schema — IF NOT EXISTS guards the index name, not the column
+# list, so a stale column here hard-fails against a bootstrapped database.
 _INDEXES = [
     "CREATE INDEX IF NOT EXISTS idx_adapter_cache_expires ON adapter_cache (expires_at)",
     "CREATE INDEX IF NOT EXISTS idx_gap_event_job ON gap_event (job_id)",
-    "CREATE INDEX IF NOT EXISTS idx_gap_event_kind ON gap_event (gap_kind)",
-    "CREATE INDEX IF NOT EXISTS idx_effect_event_action ON effectiveness_event (action)",
-    "CREATE INDEX IF NOT EXISTS idx_effect_event_when ON effectiveness_event (occurred_at)",
+    "CREATE INDEX IF NOT EXISTS idx_gap_event_ts ON gap_event (ts)",
+    "CREATE INDEX IF NOT EXISTS idx_effect_event_app ON effectiveness_event (application_id)",
+    "CREATE INDEX IF NOT EXISTS idx_effect_event_ts ON effectiveness_event (ts)",
 ]
 
 _DROP_INDEXES = [
+    "DROP INDEX IF EXISTS idx_effect_event_ts",
+    "DROP INDEX IF EXISTS idx_effect_event_app",
+    "DROP INDEX IF EXISTS idx_gap_event_ts",
+    "DROP INDEX IF EXISTS idx_gap_event_job",
+    "DROP INDEX IF EXISTS idx_adapter_cache_expires",
+    # Stale names from the pre-drift version of this migration.
     "DROP INDEX IF EXISTS idx_effect_event_when",
     "DROP INDEX IF EXISTS idx_effect_event_action",
     "DROP INDEX IF EXISTS idx_gap_event_kind",
-    "DROP INDEX IF EXISTS idx_gap_event_job",
-    "DROP INDEX IF EXISTS idx_adapter_cache_expires",
 ]
 
 _DROP_TABLES = [

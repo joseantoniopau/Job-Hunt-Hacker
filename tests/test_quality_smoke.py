@@ -24,19 +24,32 @@ def test_locustfile_imports() -> None:
 
     The module guards its `from locust import ...` so a fresh dev box can
     still load the file (e.g. for editor / linter introspection).
+
+    IMPORTANT: the import runs in a SUBPROCESS. When locust IS installed,
+    importing it triggers gevent monkey-patching at import time, which
+    poisons sockets/locks for the rest of the pytest process — every later
+    test that touches a thread or socket can deadlock.
     """
     locustfile = ROOT / "tests" / "load" / "locustfile.py"
     assert locustfile.exists(), f"missing {locustfile}"
 
-    spec = importlib.util.spec_from_file_location(
-        "tests.load.locustfile", str(locustfile)
+    import subprocess
+    script = (
+        "import importlib.util\n"
+        f"spec = importlib.util.spec_from_file_location('tests.load.locustfile', {str(locustfile)!r})\n"
+        "assert spec is not None and spec.loader is not None\n"
+        "module = importlib.util.module_from_spec(spec)\n"
+        "spec.loader.exec_module(module)\n"
+        "for cls_name in ('BrowsingUser', 'SearchUser', 'TailorUser'):\n"
+        "    assert hasattr(module, cls_name), f'locustfile missing class {cls_name}'\n"
+        "print('LOCUSTFILE_OK')\n"
     )
-    assert spec is not None and spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)  # type: ignore[union-attr]
-
-    for cls_name in ("BrowsingUser", "SearchUser", "TailorUser"):
-        assert hasattr(module, cls_name), f"locustfile missing class {cls_name}"
+    proc = subprocess.run(
+        [sys.executable, "-c", script],
+        capture_output=True, text=True, timeout=60, cwd=str(ROOT),
+    )
+    assert proc.returncode == 0, f"locustfile import failed:\n{proc.stderr}"
+    assert "LOCUSTFILE_OK" in proc.stdout
 
 
 def test_load_readme_present() -> None:

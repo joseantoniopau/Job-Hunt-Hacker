@@ -17,7 +17,7 @@ from typing import Any
 from fastapi import APIRouter, Body, File, Form, HTTPException, Request, UploadFile
 
 from ..config import settings
-from ..db import get_conn, row_to_dict, audit
+from ..db import get_conn, row_to_dict, audit, tx
 from ..models.schemas import UserProfileIn, OK
 from ..security.rate_limit import rate_limit
 from ..security.uploads import validate_upload
@@ -665,19 +665,21 @@ def accept_proposal(pid: int, body: dict = Body(default={})) -> dict:
         else:
             cols.append(f"{k} = ?")
             vals.append(v)
-    if cols:
-        cols.append("updated_at = ?")
-        vals.append(time.time())
-        sql = f"UPDATE user_profile SET {', '.join(cols)} WHERE id = 1"
-        get_conn().execute(sql, vals)
-
     now = time.time()
-    get_conn().execute(
-        """UPDATE profile_proposal
-           SET status = 'applied', applied_at = ?, accepted_fields_json = ?
-           WHERE id = ?""",
-        (now, json.dumps(resolved), int(pid)),
-    )
+    # Profile update + proposal status flip must land together — a failure
+    # between them would leave the profile changed but the proposal pending.
+    with tx() as c:
+        if cols:
+            cols.append("updated_at = ?")
+            vals.append(now)
+            sql = f"UPDATE user_profile SET {', '.join(cols)} WHERE id = 1"
+            c.execute(sql, vals)
+        c.execute(
+            """UPDATE profile_proposal
+               SET status = 'applied', applied_at = ?, accepted_fields_json = ?
+               WHERE id = ?""",
+            (now, json.dumps(resolved), int(pid)),
+        )
     audit("profile_proposal_accepted", "profile_proposal", int(pid),
           fields=sorted(payload.keys()), resolved=resolved)
 

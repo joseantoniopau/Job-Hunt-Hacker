@@ -100,10 +100,35 @@ TABLES: list[tuple[str, str]] = [
     # round-trip (the WIPE step nukes it, but if it's not in the bundle
     # we have nothing to restore).
     ("embedding", "id"),
+    ("llm_run", "id"),
+    ("profile_proposal", "id"),
+    ("career_snapshot", "id"),
+    ("connection", "id"),
+    ("connection_company", "id"),
+    ("gap_event", "id"),
+    ("effectiveness_event", "id"),
+    ("llm_job_score", "job_id"),
+    ("interview_prep_packet", "id"),
+    ("interview_practice_session", "id"),
+    ("interview_practice_turn", "id"),
+    ("offer_analysis", "id"),
 ]
 
 # Tables wiped on DELETE (everything except user_profile, which is reset).
+# Children before parents so explicit deletes never trip FK constraints.
 WIPE_TABLES: list[str] = [
+    "interview_practice_turn",
+    "interview_practice_session",
+    "interview_prep_packet",
+    "offer_analysis",
+    "gap_event",
+    "effectiveness_event",
+    "llm_job_score",
+    "connection_company",
+    "connection",
+    "profile_proposal",
+    "career_snapshot",
+    "llm_run",
     "email_event",
     "calendar_event",
     "application",

@@ -10,7 +10,14 @@ import os
 import httpx
 
 from ..config import settings
-from .base import LLMProvider
+from .base import (
+    LLMProvider,
+    LLMResult,
+    STATUS_EMPTY,
+    STATUS_ERROR,
+    STATUS_OK,
+    STATUS_RATE_LIMITED,
+)
 
 log = logging.getLogger("jhh.llm.ollama")
 
@@ -31,6 +38,18 @@ class OllamaProvider(LLMProvider):
         self.timeout = _DEFAULT_TIMEOUT
 
     def complete(self, system: str, user: str, max_tokens: int = 2048, temperature: float = 0.3) -> str:
+        return self.complete_with_status(
+            system, user, max_tokens=max_tokens, temperature=temperature
+        ).text
+
+    def complete_with_status(
+        self,
+        system: str,
+        user: str,
+        max_tokens: int = 2048,
+        temperature: float = 0.3,
+    ) -> LLMResult:
+        import time as _t
         url = f"{self.base_url}/api/chat"
         payload = {
             "model": self.model,
@@ -44,15 +63,24 @@ class OllamaProvider(LLMProvider):
                 "num_predict": int(max_tokens),
             },
         }
+        t0 = _t.perf_counter()
         try:
             with httpx.Client(timeout=self.timeout) as client:
                 r = client.post(url, json=payload)
+                latency = int((_t.perf_counter() - t0) * 1000)
                 if r.status_code >= 400:
                     log.warning("ollama %d: %s", r.status_code, r.text[:500])
-                    return ""
+                    status = STATUS_RATE_LIMITED if r.status_code == 429 else STATUS_ERROR
+                    return LLMResult(text="", status=status, latency_ms=latency,
+                                     error=f"HTTP {r.status_code}: {r.text[:200]}")
                 data = r.json()
                 msg = data.get("message") or {}
-                return (msg.get("content") or "").strip()
+                text = (msg.get("content") or "").strip()
+                if not text:
+                    return LLMResult(text="", status=STATUS_EMPTY, latency_ms=latency)
+                return LLMResult(text=text, status=STATUS_OK, latency_ms=latency)
         except Exception as e:  # noqa: BLE001
             log.warning("ollama call failed: %s", e)
-            return ""
+            return LLMResult(text="", status=STATUS_ERROR,
+                             latency_ms=int((_t.perf_counter() - t0) * 1000),
+                             error=f"{type(e).__name__}: {e}")

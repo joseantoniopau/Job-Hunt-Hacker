@@ -78,6 +78,12 @@ class LLMProvider(ABC):
             if data is not None:
                 return data
             user = user + f"\n\n(Attempt {attempt + 1} returned invalid JSON. Return ONLY valid JSON now.)"
+        import logging
+        logging.getLogger("jhh.llm").warning(
+            "complete_json: %s returned unparseable JSON after 3 attempts "
+            "(last output %d chars) — caller will see an empty dict",
+            getattr(self, "name", type(self).__name__), len(raw or ""),
+        )
         return {}
 
     def supports_json(self) -> bool:

@@ -8,7 +8,6 @@ honest output.
 from __future__ import annotations
 
 import json
-from typing import Any
 
 
 _NO_FABRICATION = (
@@ -21,82 +20,11 @@ _NO_FABRICATION = (
 )
 
 
-# ---------- resume parsing ----------
-
-RESUME_PARSE_SYS = (
-    "You parse resumes into structured JSON. Return ONLY what is present in "
-    "the source text — do not infer titles, dates, or employers that are not "
-    "explicitly stated. Use null for unknown fields."
-)
-
-
-def RESUME_PARSE_USER(text: str) -> str:
-    return (
-        "Parse the resume below into JSON with this shape:\n"
-        "{\n"
-        '  "header": {"name": str|null, "email": str|null, "phone": str|null, '
-        '"location": str|null, "links": [str]},\n'
-        '  "summary": str|null,\n'
-        '  "experience": [{"title": str, "company": str, "start": str, '
-        '"end": str|null, "location": str|null, "bullets": [str]}],\n'
-        '  "education": [{"degree": str, "school": str, "year": str|null}],\n'
-        '  "skills": [str],\n'
-        '  "projects": [{"name": str, "description": str|null, "bullets": [str]}],\n'
-        '  "certifications": [str]\n'
-        "}\n\n"
-        "RESUME TEXT:\n" + (text or "")
-    )
-
-
-# ---------- claim extraction ----------
-
-CLAIM_EXTRACT_SYS = (
-    "You extract atomic, verifiable career claims from source text. Each "
-    "claim is one specific assertion (a skill used, a project shipped, a "
-    "metric achieved, a tool wielded). Do not invent claims — only extract "
-    "what is literally stated. Mark claim_type and a confidence score."
-)
-
-
-def CLAIM_EXTRACT_USER(source_text: str, source_type: str) -> str:
-    return (
-        f"Source type: {source_type}\n\n"
-        "Return JSON: {\n"
-        '  "claims": [{\n'
-        '    "claim_type": "skill"|"project"|"achievement"|"tool"|"role"|"education"|"certification"|"metric",\n'
-        '    "claim_text": str,\n'
-        '    "normalized_claim": str,\n'
-        '    "employer": str|null, "project": str|null, "skill": str|null, '
-        '"tool": str|null, "date_start": str|null, "date_end": str|null,\n'
-        '    "confidence": 0.0-1.0,\n'
-        '    "evidence_strength": "strong"|"medium"|"weak"\n'
-        "  }]\n"
-        "}\n\n"
-        "SOURCE TEXT:\n" + (source_text or "")
-    )
-
-
-# ---------- job description normalization ----------
-
-JOB_NORMALIZE_SYS = (
-    "You normalize raw job descriptions into structured JSON. Extract only "
-    "what is explicitly stated; do not infer."
-)
-
-
-def JOB_NORMALIZE_USER(description: str) -> str:
-    return (
-        "Normalize this job description to JSON:\n"
-        "{\n"
-        '  "keywords": [str],         // important terms (technologies, methods, domain words)\n'
-        '  "required": [str],         // hard requirements\n'
-        '  "preferred": [str],        // nice-to-haves\n'
-        '  "seniority": str,          // e.g. junior/mid/senior/staff/principal\n'
-        '  "responsibilities": [str]\n'
-        "}\n\n"
-        "JOB DESCRIPTION:\n" + (description or "")
-    )
-
+# NOTE: earlier prompt pairs for resume parsing, claim extraction, and job
+# normalization were superseded by the deterministic parsers
+# (services/resume_parser.py, services/evidence_extractor.py,
+# matching/ats_analyzer.py) and by llm_vault_reingest's inline prompt, and
+# have been removed.
 
 # ---------- resume tailoring (the critical one) ----------
 
@@ -225,36 +153,12 @@ def INTERVIEW_PREP_USER(job_dict: dict, evidence_claims: list[dict]) -> str:
     )
 
 
-# ---------- contradiction detection ----------
-
-CONTRADICTION_DETECT_SYS = (
-    "You detect contradictions across a candidate's career claims (date overlaps, "
-    "title mismatches, conflicting tools/skills at the same period). Report only "
-    "literal contradictions, not stylistic differences."
-)
-
-
-def CONTRADICTION_DETECT_USER(claims: list[dict]) -> str:
-    return (
-        "Find contradictions among the claims below. Return JSON:\n"
-        "{\n"
-        '  "contradictions": [{\n'
-        '    "claim_ids": [int, int],\n'
-        '    "kind": "date_overlap"|"title_mismatch"|"tool_conflict"|"other",\n'
-        '    "explanation": str\n'
-        "  }]\n"
-        "}\n\n"
-        "CLAIMS:\n" + json.dumps(claims, indent=2)
-    )
-
+# Contradiction detection is handled deterministically by
+# services/contradiction_detector.py (wired to /api/vault/contradictions/scan).
 
 __all__ = [
-    "RESUME_PARSE_SYS", "RESUME_PARSE_USER",
-    "CLAIM_EXTRACT_SYS", "CLAIM_EXTRACT_USER",
-    "JOB_NORMALIZE_SYS", "JOB_NORMALIZE_USER",
     "RESUME_TAILOR_SYS", "RESUME_TAILOR_USER",
     "COVER_LETTER_SYS", "COVER_LETTER_USER",
     "RECRUITER_MESSAGE_SYS", "RECRUITER_MESSAGE_USER",
     "INTERVIEW_PREP_SYS", "INTERVIEW_PREP_USER",
-    "CONTRADICTION_DETECT_SYS", "CONTRADICTION_DETECT_USER",
 ]

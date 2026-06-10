@@ -24,7 +24,7 @@ from typing import Any, Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from ..db import get_conn, tx
+from ..db import get_conn, tx, audit
 from ..llm import get_llm
 from ..llm.json_repair import extract_json
 from ..llm.observability import observed_complete
@@ -511,6 +511,19 @@ def latest_for_app(application_id: int) -> dict:
     if not row:
         raise HTTPException(404, f"no offer analysis for application {application_id}")
     return {"ok": True, "data": _row_to_analysis(row)}
+
+
+@router.delete("/{analysis_id}")
+def delete_analysis(analysis_id: int) -> dict:
+    row = get_conn().execute(
+        "SELECT id FROM offer_analysis WHERE id = ?", (int(analysis_id),),
+    ).fetchone()
+    if not row:
+        raise HTTPException(404, f"offer analysis {analysis_id} not found")
+    with tx() as c:
+        c.execute("DELETE FROM offer_analysis WHERE id = ?", (int(analysis_id),))
+    audit("offer_analysis_deleted", "offer_analysis", int(analysis_id))
+    return {"ok": True, "data": {"deleted": int(analysis_id)}}
 
 
 @router.post("/compare")

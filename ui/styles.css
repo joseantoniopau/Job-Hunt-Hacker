@@ -3066,3 +3066,101 @@ form.autopilot-running .form-actions {
   padding: var(--s-3);
   border: var(--border-thin);
 }
+
+/* =====================================================================
+   POLISH PASS — activity bar, keyboard shortcuts, quick filter,
+   sticky table headers. Same brutalist discipline: hard edges, mono
+   labels, rationed color, no gradients-as-decoration.
+   ===================================================================== */
+
+/* Global network activity bar — a hard oxblood strip under the very top
+   of the viewport whenever any API call is in flight. The stripe block
+   marches right so even long requests visibly "tick". */
+#activity-bar {
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  height: 4px;
+  z-index: 300;
+  background: repeating-linear-gradient(
+    90deg,
+    var(--accent) 0 24px,
+    var(--ink) 24px 48px
+  );
+  background-size: 48px 4px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms var(--ease);
+}
+#activity-bar.active {
+  opacity: 1;
+  animation: activity-march 600ms linear infinite;
+}
+@keyframes activity-march {
+  from { background-position-x: 0; }
+  to   { background-position-x: 48px; }
+}
+
+/* Keyboard key caps */
+kbd {
+  display: inline-block;
+  min-width: 1.6em;
+  padding: 1px 6px;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 700;
+  text-align: center;
+  background: var(--card);
+  border: 2px solid var(--ink);
+  box-shadow: 2px 2px 0 var(--ink);
+  color: var(--ink);
+}
+
+.shortcuts-grid {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--s-2) var(--s-4);
+  align-items: center;
+  font-family: var(--mono);
+  font-size: 13px;
+  margin: var(--s-4) 0;
+}
+.shortcuts-grid > div:nth-child(odd) { white-space: nowrap; }
+
+.kbd-hint {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.kbd-hint kbd { font-size: 10px; padding: 0 4px; }
+
+/* Quick filter input in the results toolbar */
+.quick-filter {
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  padding: 7px 10px;
+  border: 2px solid var(--ink);
+  background: var(--input-bg);
+  min-width: 230px;
+}
+.quick-filter:focus {
+  outline: 3px solid var(--secondary);
+  outline-offset: 1px;
+}
+
+/* Sticky table headers — long tables scroll inside their frame while the
+   ink header row stays pinned, so column meaning is never lost. */
+.table-wrap {
+  max-height: 72vh;
+  overflow-y: auto;
+}
+.data-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
