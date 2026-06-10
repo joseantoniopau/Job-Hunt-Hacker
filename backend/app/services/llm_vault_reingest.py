@@ -76,7 +76,216 @@ _SYSTEM_PROMPT = (
     "that cut chargebacks 18%\" beats \"worked on fraud\".\n"
     "  6. One claim per fact. Don't bundle three achievements into one "
     "claim_text just to save tokens.\n"
+    "  7. BE EXHAUSTIVE — cover the WHOLE work history. For EVERY position "
+    "in the text (every title + employer + date range, including early-"
+    "career and short stints), output one `role` claim whose claim_text "
+    "names the exact title and employer, with date_start/date_end copied "
+    "from the text. Then extract that position's accomplishments as "
+    "separate claims. A full profile typically yields 15-40 claims; "
+    "stopping after the most recent job is a failure.\n"
 )
+
+
+# ---------------------------------------------------------------------------
+# Input cleanup — pasted LinkedIn profiles arrive full of UI chrome ("Home",
+# "My Network", "Get started", "Show all 12 posts"...). The noise buries the
+# Experience section and measurably degrades extraction recall on smaller
+# local models, so we drop pure-chrome lines before prompting. Spans the
+# model quotes from the cleaned text still verify against raw_text because
+# we only ever remove whole lines and the span check is whitespace-
+# normalized.
+# ---------------------------------------------------------------------------
+
+_CHROME_EXACT = {
+    "home", "my network", "jobs", "messaging", "notifications", "me",
+    "for business", "advertise", "enhance profile", "add section",
+    "open to", "cover photo", "contact info", "activity",
+    "create a post", "analytics", "private to you", "suggested for you",
+    "stand out to employers", "get started", "add services", "more",
+    "follow", "connect", "message", "pending", "view profile",
+    "people also viewed", "people you may know", "promoted",
+}
+_CHROME_PREFIX_RE = re.compile(
+    r"^(show all\b|thumbnail for\b|see all\b|loading\b|skip to\b)", re.I)
+_CHROME_SUFFIX_RE = re.compile(r"(\blogo|… ?more|…more)\s*$", re.I)
+
+
+def _strip_profile_chrome(text: str) -> str:
+    """Remove whole lines that are platform UI chrome, never content."""
+    out: list[str] = []
+    for line in (text or "").splitlines():
+        s = line.strip()
+        if not s:
+            out.append(line)
+            continue
+        if s.lower() in _CHROME_EXACT:
+            continue
+        if _CHROME_PREFIX_RE.match(s) or _CHROME_SUFFIX_RE.search(s):
+            continue
+        out.append(line)
+    return "\n".join(out)
+
+
+# ---------------------------------------------------------------------------
+# Deterministic position parser — a completeness backstop. LLM extraction
+# may under-report (skip early-career roles, drop titles/dates), but a
+# pasted profile's Experience section has a regular shape:
+#
+#   grouped (multiple roles at one employer):     simple:
+#       Employer                                      Title
+#       8 yrs                                         Employer
+#       Title                                         Mon YYYY - Mon YYYY · 2 yrs
+#       Full-time
+#       Mon YYYY - Present · 2 yrs 5 mos
+#
+# We find date-range lines and walk back to recover title + employer. Any
+# position the LLM missed becomes a synthesized `role` claim — built from
+# literal text lines, so the no-fabrication contract holds by construction.
+# ---------------------------------------------------------------------------
+
+_MONTH = r"(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*"
+_DATE_RANGE_RE = re.compile(
+    rf"^(?P<start>{_MONTH}\.? \d{{4}})\s*[-–]\s*(?P<end>{_MONTH}\.? \d{{4}}|present)"
+    r"(\s*·.*)?$",
+    re.I,
+)
+_DURATION_RE = re.compile(r"^\d+\s*yrs?(\s+\d+\s*mos?)?$|^\d+\s*mos?$", re.I)
+_EMPLOYMENT_TYPE_RE = re.compile(
+    r"^(full[- ]time|part[- ]time|contract|internship|freelance|"
+    r"self[- ]employed|temporary|apprenticeship|seasonal)$", re.I)
+
+
+def _is_walkback_noise(s: str) -> bool:
+    """Lines skipped while walking back from a date line to find the title."""
+    return bool(
+        _EMPLOYMENT_TYPE_RE.match(s)
+        or _DURATION_RE.match(s)
+        or "·" in s
+        or "," in s          # locations: "Mountain View, California"
+    )
+
+
+def _is_hard_stop(s: str) -> bool:
+    """Description prose or another date line ends the walk-back."""
+    return len(s) > 70 or bool(_DATE_RANGE_RE.match(s))
+
+
+def parse_positions(text: str) -> list[dict]:
+    """Extract (title, employer, date_start, date_end) for every dated
+    position found in a resume / LinkedIn-style text. Heuristic but
+    deterministic; returns [] when the text has no recognizable positions."""
+    lines = [ln.strip() for ln in (text or "").splitlines()]
+    positions: list[dict] = []
+    current_group: Optional[str] = None
+
+    for i, s in enumerate(lines):
+        if not s:
+            continue
+        # Company-group header: short line whose next non-empty line is a
+        # total-duration line ("eBay" / "8 yrs"). Blank lines in between are
+        # common in real pastes.
+        k = i + 1
+        while k < len(lines) and not lines[k]:
+            k += 1
+        if (k < len(lines) and _DURATION_RE.match(lines[k])
+                and len(s) < 60 and not _DATE_RANGE_RE.match(s)
+                and not _is_walkback_noise(s)):
+            current_group = s
+            continue
+
+        m = _DATE_RANGE_RE.match(s)
+        if not m:
+            continue
+
+        # Walk back to collect up to two candidate lines (title / employer).
+        cands: list[str] = []
+        j = i - 1
+        while j >= 0 and len(cands) < 2:
+            prev = lines[j]
+            j -= 1
+            if not prev:
+                continue
+            if _is_hard_stop(prev):
+                break
+            if _is_walkback_noise(prev):
+                continue
+            if current_group and prev == current_group:
+                break
+            cands.append(prev)
+        if not cands:
+            continue
+
+        if len(cands) == 2:
+            # simple layout: nearest line is the employer, the one above is
+            # the title — and a simple-layout entry means we've left any
+            # grouped-employer section.
+            title, employer = cands[1], cands[0]
+            current_group = None
+        else:
+            title, employer = cands[0], current_group
+
+        positions.append({
+            "title": title.rstrip(" ·"),
+            "employer": (employer or "").strip() or None,
+            "date_start": m.group("start"),
+            "date_end": m.group("end"),
+            "span_line": s,
+        })
+    return positions
+
+
+def _supplement_missing_positions(
+    candidates: list[dict], positions: list[dict], source_id: int,
+) -> tuple[list[dict], int]:
+    """Append a synthesized `role` claim for every parsed position the LLM
+    missed. Returns (claims, added_count). A position counts as covered when
+    any role claim mentions its title, or matches its employer + start date."""
+    added = 0
+    roles = [
+        (_norm_for_match(c.get("claim_text") or ""),
+         (c.get("date_start") or "").strip().lower(),
+         _norm_for_match(c.get("employer") or ""))
+        for c in candidates if c.get("claim_type") == "role"
+    ]
+    for pos in positions:
+        title_n = _norm_for_match(pos["title"])
+        pos_date = pos["date_start"].strip().lower()
+        pos_emp = _norm_for_match(pos.get("employer") or "")
+        # Covered when a role claim mentions the title with a compatible
+        # start date ("Widget Engineer" must not be claimed covered by
+        # "Senior Widget Engineer" from a different period), or pins the
+        # same employer + start date.
+        covered = any(
+            (title_n in text and (not date or date == pos_date))
+            or (pos_emp and emp == pos_emp and date == pos_date)
+            for text, date, emp in roles
+        )
+        if covered:
+            continue
+        text = (f'{pos["title"]} at {pos["employer"]}' if pos.get("employer")
+                else pos["title"])
+        candidates.append({
+            "source_id": source_id,
+            "claim_type": "role",
+            "claim_text": text,
+            "normalized_claim": normalize(text),
+            "date_start": pos["date_start"],
+            "date_end": pos["date_end"],
+            "employer": pos.get("employer"),
+            "project": None,
+            "skill": None,
+            "tool": None,
+            # Deterministically parsed from literal title/date lines —
+            # slightly below the LLM+span-verified 0.9.
+            "confidence": 0.85,
+            "evidence_strength": "medium",
+            "user_verified": 0,
+            "allowed_for_resume": 1,
+            "contradiction_status": "none",
+            "_source_span": pos["span_line"],
+        })
+        added += 1
+    return candidates, added
 
 
 def _user_prompt(text: str) -> str:
@@ -101,6 +310,8 @@ def _user_prompt(text: str) -> str:
         "Extract claims from this source text. Output a JSON list using "
         "this schema:\n\n"
         f"{schema}\n"
+        "Cover EVERY position in the work history — one `role` claim per "
+        "title + employer + date range, plus its accomplishments.\n\n"
         "INPUT TEXT (use only what's here):\n"
         "---\n"
         f"{(text or '')[:_MAX_TEXT_CHARS]}\n"
@@ -344,7 +555,10 @@ def reingest_source_with_llm(source_id: int) -> dict:
         }
 
     system = _SYSTEM_PROMPT
-    user = _user_prompt(raw_text)
+    # Strip platform UI chrome before prompting — spans quoted from the
+    # cleaned text still verify against raw_text (whole-line removal only).
+    cleaned_text = _strip_profile_chrome(raw_text)
+    user = _user_prompt(cleaned_text)
 
     try:
         output, llm_run_id = observed_complete(
@@ -391,6 +605,16 @@ def reingest_source_with_llm(source_id: int) -> dict:
             dropped += 1
             continue
         candidates.append(built)
+
+    # Completeness backstop: any dated position the LLM missed becomes a
+    # deterministic `role` claim parsed from literal title/date lines.
+    positions = parse_positions(cleaned_text)
+    candidates, synthesized = _supplement_missing_positions(
+        candidates, positions, int(source_id))
+    if synthesized:
+        log.info("vault_reingest %s: synthesized %d role claim(s) the LLM "
+                 "missed (%d positions parsed)", source_id, synthesized,
+                 len(positions))
 
     # Dedupe by (claim_type, normalized_claim) so the LLM can't pad the count
     # with paraphrases of the same fact.

@@ -41,6 +41,10 @@ ABSOLUTE RULES:
 - Distinguish EMPLOYERS (e.g. eBay) from TITLES (e.g. Information Security
   Engineer III).
 - If a section has no supporting evidence, omit it.
+- This is the candidate's MASTER resume: include EVERY employer and dated
+  role present in the evidence — do not editorially cut early-career
+  positions. List experience reverse-chronologically (most recent first).
+  Copy start/end dates from the role claims.
 
 OUTPUT JSON:
 {
@@ -101,7 +105,9 @@ def _build_evidence_pack() -> tuple[str, dict]:
         "SELECT id, source_id, claim_type, claim_text, "
         "       COALESCE(skill, '') AS skill, "
         "       COALESCE(tool,  '') AS tool, "
-        "       COALESCE(employer, '') AS employer "
+        "       COALESCE(employer, '') AS employer, "
+        "       COALESCE(date_start, '') AS date_start, "
+        "       COALESCE(date_end,  '') AS date_end "
         "FROM career_claim ORDER BY id"
     ).fetchall()
     if claim_rows:
@@ -116,6 +122,8 @@ def _build_evidence_pack() -> tuple[str, dict]:
                 tags.append(f"tool={r['tool']}")
             if r["employer"]:
                 tags.append(f"employer={r['employer']}")
+            if r["date_start"]:
+                tags.append(f"dates={r['date_start']} - {r['date_end'] or '?'}")
             parts.append(f"[claim #{r['id']} src#{r['source_id']}] "
                          f"{r['claim_text']}"
                          + (f"  ({' | '.join(tags)})" if tags else ""))
