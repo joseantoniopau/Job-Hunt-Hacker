@@ -37,7 +37,7 @@ from fastapi import APIRouter, HTTPException, Query, UploadFile, File
 from fastapi.responses import Response
 from pydantic import BaseModel
 
-from ..config import settings
+from ..config import APP_VERSION, settings
 from ..db import audit, get_conn, row_to_dict, tx
 
 log = logging.getLogger("jhh.data")
@@ -155,7 +155,7 @@ def _build_export_bundle() -> tuple[dict[str, Any], dict[str, int]]:
     conn = get_conn()
     bundle: dict[str, Any] = {
         "version": EXPORT_VERSION,
-        "app_version": "0.2.0",
+        "app_version": APP_VERSION,
         "exported_at": datetime.now(timezone.utc).isoformat(),
         "tables": {},
     }

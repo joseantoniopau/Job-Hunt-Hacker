@@ -17,7 +17,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from ..config import ENV_FILE, settings
+from ..config import APP_VERSION, ENV_FILE, settings
 from ..db import audit
 from ..services.job_sources import REGISTRY
 
@@ -124,7 +124,7 @@ def get_settings() -> dict:
     return {
         "ok": True,
         "data": {
-            "version": "0.2.0",
+            "version": APP_VERSION,
             "default_mode": settings.default_mode,
             "auto_apply_enabled": settings.auto_apply_enabled,
             "auto_apply_daily_cap": settings.auto_apply_daily_cap,

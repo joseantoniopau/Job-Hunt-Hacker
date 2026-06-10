@@ -14,7 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse, FileResponse
 
-from .config import settings
+from .config import APP_VERSION, settings
 from .db import init_db, audit
 
 log = logging.getLogger("jhh")
@@ -44,7 +44,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Job Hunt Hacker",
     description="Find better jobs. Tailor honestly. Apply with discipline.",
-    version="0.2.0",
+    version=APP_VERSION,
     lifespan=lifespan,
 )
 

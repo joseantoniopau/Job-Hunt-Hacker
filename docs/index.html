@@ -16,7 +16,7 @@
     href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Serif:wght@400;600;700&display=swap"
     rel="stylesheet"
   />
-  <link rel="stylesheet" href="./styles.css?v=2026053104" />
+  <link rel="stylesheet" href="./styles.css?v=2026061001" />
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
   <meta http-equiv="Pragma" content="no-cache" />
   <meta http-equiv="Expires" content="0" />
@@ -32,7 +32,7 @@
 
   <!-- ===== HERO ===== -->
   <header class="hero">
-    <p class="kicker">v0.3 · A local skill, not a SaaS</p>
+    <p class="kicker">v0.4 · A local skill, not a SaaS</p>
     <h1 class="hero-title">JOB HUNT HACKER</h1>
     <p class="hero-tagline">
       Your own AI headhunter. Honest by construction.
@@ -54,7 +54,7 @@
       <span class="pill pill-blue">MIT licensed</span>
       <span class="pill pill-green">Runs offline</span>
       <span class="pill pill-warn">Auto-apply OFF by default</span>
-      <span class="pill pill-accent">NEW · AUTOPILOT + INTEL + NETWORK</span>
+      <span class="pill pill-accent">NEW · OFFER ANALYSIS + INTERVIEW CO-PILOT + LLM OBSERVABILITY</span>
     </div>
     <p class="scroll-cue">Scroll for the receipts</p>
   </header>
@@ -70,7 +70,7 @@
       <span class="stat-label">Industries</span>
     </div>
     <div class="stat">
-      <span class="stat-num">32</span>
+      <span class="stat-num">160</span>
       <span class="stat-label">API endpoints</span>
     </div>
     <div class="stat">
@@ -153,7 +153,7 @@
         </article>
         <article class="card">
           <h3>Honest tailoring</h3>
-          <p>12 resume styles, evidence-grounded bullets, ATS-safe plain-text export, DOCX with real Word formatting, PDF when reportlab/weasyprint installed.</p>
+          <p>13 resume styles, evidence-grounded bullets, ATS-safe plain-text export, DOCX with real Word formatting, PDF when reportlab/weasyprint installed.</p>
         </article>
         <article class="card">
           <h3>Cover letters + recruiter messages + interview prep</h3>
@@ -192,8 +192,36 @@
           <p>Tag which resume version got which reply. After 20 applications the skill tells you which style works.</p>
         </article>
         <article class="card">
+          <h3>Offer analysis + comparison</h3>
+          <p>Paste an offer letter: component breakdown, market comparison against your local salary corpus, counter script, red flags, equity analysis. Compare multiple offers side by side.</p>
+        </article>
+        <article class="card">
+          <h3>Interview co-pilot</h3>
+          <p>Per-application prep packets (company brief, behavioral / technical / scenario questions, STAR skeletons from your real evidence) plus mock practice sessions with scored, per-answer feedback.</p>
+        </article>
+        <article class="card">
+          <h3>LLM semantic rerank</h3>
+          <p>One click second-pass-scores your top deterministic matches with the LLM — fit summary, strengths, gaps, recommended action per job. You choose when to spend the tokens.</p>
+        </article>
+        <article class="card">
+          <h3>LLM observability + human gates</h3>
+          <p>Every LLM call is logged (prompt, output, latency, status) and inspectable in the UI. Profile changes inferred by the LLM go through an accept/reject review gate — nothing writes itself.</p>
+        </article>
+        <article class="card">
+          <h3>Career snapshot + base resume</h3>
+          <p>An honest read of where you are: career stage with reasoning, strengths, next steps, role recommendations — plus a master base resume assembled from your verified vault.</p>
+        </article>
+        <article class="card">
+          <h3>Keyboard-driven brutalist UI</h3>
+          <p><code>g</code>+letter tab navigation, <code>/</code> to search, instant client-side table filters, sticky headers, a global activity bar, and an Esc-closes-everything discipline. Press <code>?</code> for the cheat-sheet.</p>
+        </article>
+        <article class="card">
           <h3>Live API key testing</h3>
           <p>Paste a SerpApi / Anthropic / OpenAI / GitHub key in Settings, click TEST, get a green check the moment it's live. Adapters go hot without a restart.</p>
+        </article>
+        <article class="card">
+          <h3>Local LLM support</h3>
+          <p>Point at Ollama and run a fully local model — zero cloud egress. Provider preference, model choice, and connection test all in Settings. Deterministic template fallback when no LLM at all.</p>
         </article>
         <article class="card">
           <h3>Observability + security</h3>
@@ -252,13 +280,13 @@
             <td>Prepares for interviews</td>
             <td class="yes">Sometimes</td>
             <td class="no">No</td>
-            <td class="yes">Library + role-aware</td>
+            <td class="yes">Prep packets + scored mock practice</td>
           </tr>
           <tr>
             <td>Negotiates offers</td>
             <td class="yes">Yes</td>
             <td class="no">No</td>
-            <td class="yes">Script + market comp</td>
+            <td class="yes">Offer analysis + counter script</td>
           </tr>
           <tr>
             <td>Knows the salary market</td>
@@ -462,7 +490,7 @@
         </details>
         <details>
           <summary>What's the architecture?</summary>
-          <p>FastAPI backend, SQLite vault, 32 API routers, vanilla brutalist HTML/CSS/JS UI. Optional LLM providers (Anthropic / OpenAI / Ollama / template fallback). Optional Gmail + Google Calendar via OAuth. Background scheduler via APScheduler. Vector retrieval via SQLite + numpy cosine (OpenAI / sentence-transformers / hashing fallback). Read <a href="https://github.com/joseantoniopau/Job-Hunt-Hacker#architecture">the README architecture diagram</a>.</p>
+          <p>FastAPI backend, 28-table SQLite vault, 36 API routers exposing 160 endpoints, vanilla brutalist HTML/CSS/JS UI, 146-test suite. Optional LLM providers (Anthropic / OpenAI / Ollama / template fallback) with full call observability. Optional Gmail + Google Calendar via OAuth. Background scheduler via APScheduler. Vector retrieval via SQLite + numpy cosine (OpenAI / sentence-transformers / hashing fallback). Read <a href="https://github.com/joseantoniopau/Job-Hunt-Hacker#architecture">the README architecture diagram</a>.</p>
         </details>
         <details>
           <summary>How do I report a bug or contribute?</summary>
@@ -482,14 +510,15 @@
         <li>✓ Phase 5 — Scheduler, saved searches, application pipeline, follow-up reminders</li>
         <li>✓ Phase 6 — Gmail / IMAP / Google Calendar / ICS integrations</li>
         <li>✓ Phase 7 — Assisted apply, packet builder, auto-prep queue (no auto-submit)</li>
-        <li>✓ <strong>v0.3 — Autopilot, INTEL + NETWORK tabs, salary intel, networking, velocity, gaps, A/B effectiveness, negotiation script, followup orchestration, agnostic industry coverage, observability, security hardening, browser extension scaffold</strong></li>
+        <li>✓ v0.3 — Autopilot, INTEL + NETWORK tabs, salary intel, networking, velocity, gaps, A/B effectiveness, negotiation script, followup orchestration, agnostic industry coverage, observability, security hardening, browser extension scaffold</li>
+        <li>✓ <strong>v0.4 — Offer analysis + comparison, interview co-pilot (prep packets + scored mock practice), LLM semantic rerank, LLM observability with human review gates, career snapshot + base resume, local Ollama panel, LinkedIn paste ingestion, saved-search pause/resume, full 28-table data export, keyboard-driven UI (shortcuts, quick filters, sticky headers, activity bar)</strong></li>
       </ol>
     </section>
 
   </main>
 
   <footer class="site-footer">
-    <p>JOB&nbsp;HUNT&nbsp;HACKER &middot; v0.3 &middot; MIT licensed &middot; never invents career facts</p>
+    <p>JOB&nbsp;HUNT&nbsp;HACKER &middot; v0.4 &middot; MIT licensed &middot; never invents career facts</p>
     <p>
       <a href="https://github.com/joseantoniopau/Job-Hunt-Hacker">GitHub</a>
       &middot;
