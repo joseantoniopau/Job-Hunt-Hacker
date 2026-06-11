@@ -11,7 +11,7 @@
     href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Serif:wght@400;600;700&display=swap"
     rel="stylesheet"
   />
-  <link rel="stylesheet" href="/styles.css?v=2026061101" />
+  <link rel="stylesheet" href="/styles.css?v=2026061102" />
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
   <meta http-equiv="Pragma" content="no-cache" />
   <meta http-equiv="Expires" content="0" />
@@ -63,6 +63,14 @@
         </button>
         <span id="mode-pill"   class="pill pill-blue"  title="Default mode">MODE: ASSISTED</span>
         <span id="health-pill" class="pill pill-muted" title="Server health">CHECKING</span>
+        <button id="notif-toggle" class="pill pill-muted notif-toggle" type="button"
+                title="Notifications" aria-haspopup="true" aria-expanded="false">
+          BELL<span id="notif-count" class="notif-count hidden">0</span>
+        </button>
+        <div id="notif-dropdown" class="notif-dropdown hidden" role="menu" aria-label="Notifications">
+          <header class="notif-head">NOTIFICATIONS</header>
+          <ul id="notif-list" class="notif-list"><li class="notif-empty">No notifications.</li></ul>
+        </div>
       </div>
     </div>
     <div id="compliance-banner" class="compliance-banner hidden" role="alert">
@@ -193,6 +201,11 @@
           and re-runs the search every 24 hours. <strong>You review and apply.</strong>
         </p>
         <p id="autopilot-pill" class="autopilot-pill hidden" aria-live="polite"></p>
+        <div id="demo-mode-cta" class="demo-cta hidden">
+          <button type="button" class="btn btn-secondary" id="demo-seed-btn">TRY WITH DEMO DATA</button>
+          <button type="button" class="btn btn-ghost hidden" id="demo-remove-btn">REMOVE DEMO DATA</button>
+          <span class="muted small" id="demo-cta-note">Seeds a fictional profile + jobs so you can explore before adding your own. Fully reversible.</span>
+        </div>
       </div>
 
       <!-- ===== URL INGEST STATUS — surfaces robots-blocked LinkedIn so the user knows to paste ===== -->
@@ -1712,6 +1725,6 @@ Select a resume to preview.
       &middot; <button type="button" id="kbd-hint" class="kbd-hint" title="Show keyboard shortcuts">press <kbd>?</kbd> for shortcuts</button></p>
   </footer>
 
-  <script src="/app.js?v=2026061101" defer></script>
+  <script src="/app.js?v=2026061102" defer></script>
 </body>
 </html>

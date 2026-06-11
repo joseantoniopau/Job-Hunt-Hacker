@@ -182,6 +182,7 @@
     try { localStorage.setItem('jhh.lastPage', name); } catch (_) {}
 
     // page-specific lazy loads
+    if (name === 'landing')   refreshDemoCta();
     if (name === 'setup')     loadProfile();
     if (name === 'vault')     { loadVault(); loadVaultSummary(); }
     if (name === 'dashboard') { loadJobs(); loadSavedSearches(); }
@@ -3517,6 +3518,120 @@
   // ============================================================
   // INIT
   // ============================================================
+  // ============================================================
+  // NOTIFICATIONS (v0.5) — topbar bell + dropdown, 60s poll
+  // ============================================================
+  let _notifPollHandle = null;
+
+  async function refreshNotifications() {
+    const r = await api.get('/api/notifications?unread_only=false', { silent: true });
+    if (!r.ok) return;
+    const items = r.data || [];
+    const unread = r.unread_count != null ? r.unread_count : items.filter(n => !n.read).length;
+    const countEl = $('#notif-count');
+    const toggle = $('#notif-toggle');
+    if (countEl) {
+      countEl.textContent = String(unread);
+      countEl.classList.toggle('hidden', !unread);
+    }
+    if (toggle) toggle.classList.toggle('pill-warn', unread > 0);
+    const list = $('#notif-list');
+    if (!list) return;
+    list.innerHTML = '';
+    if (!items.length) {
+      list.appendChild(el('li', { class: 'notif-empty', text: 'No notifications.' }));
+      return;
+    }
+    for (const n of items.slice(0, 30)) {
+      const li = el('li', {
+        class: 'notif-item' + (n.read ? '' : ' notif-unread'),
+        role: 'menuitem', tabindex: '0',
+        onclick: () => markNotificationRead(n.id),
+      }, [
+        el('div', { class: 'notif-title', text: safeText(n.title || '(untitled)') }),
+        n.body ? el('div', { class: 'notif-body', text: safeText(n.body) }) : null,
+        el('div', { class: 'notif-time muted small', text: fmtRel(n.ts) }),
+      ].filter(Boolean));
+      li.addEventListener('keydown', (e) => { if (e.key === 'Enter') markNotificationRead(n.id); });
+      list.appendChild(li);
+    }
+  }
+
+  async function markNotificationRead(id) {
+    const r = await api.post('/api/notifications/' + id + '/read', {}, { silent: true });
+    if (r.ok) refreshNotifications();
+  }
+
+  function bindNotifications() {
+    const toggle = $('#notif-toggle');
+    const dropdown = $('#notif-dropdown');
+    if (!toggle || !dropdown) return;
+    toggle.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const open = dropdown.classList.toggle('hidden');
+      toggle.setAttribute('aria-expanded', String(!open));
+      if (!open) refreshNotifications();
+    });
+    document.addEventListener('click', (e) => {
+      if (!dropdown.contains(e.target) && e.target !== toggle) {
+        dropdown.classList.add('hidden');
+        toggle.setAttribute('aria-expanded', 'false');
+      }
+    });
+  }
+
+  function startNotificationsPoll() {
+    refreshNotifications();
+    if (_notifPollHandle) clearInterval(_notifPollHandle);
+    _notifPollHandle = setInterval(refreshNotifications, 60000);
+  }
+
+  // ============================================================
+  // DEMO MODE (v0.5) — landing onboarding
+  // ============================================================
+  async function refreshDemoCta() {
+    const cta = $('#demo-mode-cta');
+    if (!cta) return;
+    const status = await api.get('/api/vault/demo-status', { silent: true });
+    const active = !!(status.ok && status.data && status.data.active);
+    let vaultEmpty = true;
+    if (!active) {
+      const sum = await api.get('/api/vault/summary', { silent: true });
+      if (sum.ok && sum.data) {
+        const d = sum.data;
+        vaultEmpty = !((d.claims_total || 0) > 0 || (d.sources_total || 0) > 0);
+      }
+    }
+    // Show the CTA only when demo is active (offer removal) or vault is empty.
+    cta.classList.toggle('hidden', !(active || vaultEmpty));
+    const seedBtn = $('#demo-seed-btn');
+    const removeBtn = $('#demo-remove-btn');
+    const note = $('#demo-cta-note');
+    if (seedBtn) seedBtn.classList.toggle('hidden', active);
+    if (removeBtn) removeBtn.classList.toggle('hidden', !active);
+    if (note) note.textContent = active
+      ? 'Demo data is loaded. Remove it whenever you add your own evidence.'
+      : 'Seeds a fictional profile + jobs so you can explore before adding your own. Fully reversible.';
+  }
+
+  function bindDemoMode() {
+    const seedBtn = $('#demo-seed-btn');
+    const removeBtn = $('#demo-remove-btn');
+    if (seedBtn) seedBtn.addEventListener('click', async () => {
+      seedBtn.disabled = true; seedBtn.textContent = 'SEEDING…';
+      const r = await api.post('/api/vault/demo-seed', { confirm: true });
+      seedBtn.disabled = false; seedBtn.textContent = 'TRY WITH DEMO DATA';
+      if (r.ok) { toast('Demo data loaded.', 'success'); refreshDemoCta(); }
+    });
+    if (removeBtn) removeBtn.addEventListener('click', async () => {
+      if (!confirm('Remove all demo data?')) return;
+      removeBtn.disabled = true;
+      const r = await api.del('/api/vault/demo-seed');
+      removeBtn.disabled = false;
+      if (r.ok) { toast('Demo data removed.', 'success'); refreshDemoCta(); }
+    });
+  }
+
   function init() {
     bindRouting();
     bindProfileForm();
@@ -3546,6 +3661,9 @@
     startLLMActivityPoll();
     bindVaultQuickUpdate();
     bindSetupQuickIngestLinks();
+    bindNotifications();
+    startNotificationsPoll();
+    bindDemoMode();
 
     // Explicit hash wins; otherwise resume wherever the user left off.
     let start = (location.hash || '').replace('#', '');
