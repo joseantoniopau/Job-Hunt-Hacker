@@ -248,7 +248,8 @@ async def autopilot_start(
     try:
         from ..db import row_to_dict
         prof_row = get_conn().execute(
-            "SELECT target_titles, target_keywords, preferred_locations, location "
+            "SELECT target_titles, target_keywords, preferred_locations, location, "
+            "       remote_preference "
             "FROM user_profile WHERE id=1"
         ).fetchone()
         prof = row_to_dict(prof_row) or {}
@@ -259,17 +260,49 @@ async def autopilot_start(
         if isinstance(keywords, str):
             keywords = [t.strip() for t in keywords.split(",") if t.strip()]
         location_pref = (prof.get("preferred_locations") or [prof.get("location") or ""])[0] if (prof.get("preferred_locations") or prof.get("location")) else ""
+        remote_pref = (prof.get("remote_preference") or "").strip().lower()
     except Exception:
-        pass
+        remote_pref = ""
+
+    # Guard: a search query must be a ROLE, never an employer. Inference has
+    # historically leaked employer names into target_titles ("eBay"), and
+    # searching a job board for an employer name returns that company's
+    # whole catalog — office assistants, full-stack devs — drowning the
+    # user's actual field.
+    try:
+        employer_rows = get_conn().execute(
+            "SELECT DISTINCT lower(trim(employer)) AS e FROM career_claim "
+            "WHERE employer IS NOT NULL AND trim(employer) != ''"
+        ).fetchall()
+        known_employers = {r["e"] for r in employer_rows}
+    except Exception:
+        known_employers = set()
+    dropped_employer_queries = [
+        t for t in (targets or []) if t and t.strip().lower() in known_employers
+    ]
+    if dropped_employer_queries:
+        log.warning("autopilot: dropped employer name(s) from search queries: %s",
+                    dropped_employer_queries)
+    targets = [t for t in (targets or [])
+               if t and t.strip().lower() not in known_employers]
 
     # Build a multi-query plan: search each of the top 3 titles independently
     # rather than blasting only the first one. Falling back to a keyword-only
     # query keeps the run productive even when title inference is sparse.
-    primary_queries: list[str] = [t for t in (targets or []) if t][:3]
+    primary_queries: list[str] = [t for t in targets if t][:3]
     if not primary_queries and keywords:
         primary_queries = [" ".join(keywords[:3])]
     if not primary_queries:
         primary_queries = ["engineer"]
+
+    # The user's remote preference wins: someone in Miami who wants remote
+    # work should search remote, not Miami-local listings. And a remote
+    # search must NOT pass the home city as `location` — boards treat
+    # location as a hard metro filter, which starves the search (Indeed
+    # returns 0 for "threat hunter"+Miami but 10 for "threat hunter"+remote).
+    wants_remote = remote_pref in ("remote", "remote_only", "remote-only") \
+        or not bool(location_pref)
+    search_location = None if wants_remote else (location_pref or None)
     raw_sites = [s.strip() for s in (sites or "").split(",") if s.strip()]
 
     # Expand sites the same way /api/search does: jobspy-supported scraper
@@ -310,8 +343,8 @@ async def autopilot_start(
         for query in primary_queries:
             q = JobSearchQuery(
                 query=query,
-                location=location_pref or None,
-                is_remote=not bool(location_pref),
+                location=search_location,
+                is_remote=wants_remote,
                 results_per_site=per_query_cap,
                 hours_old=int(search_hours_old),
             )
@@ -498,52 +531,62 @@ async def autopilot_start(
         summary["steps"].append({"name": "packets_built", "status": "error",
                                  "detail": f"{type(exc).__name__}: {exc}"})
 
-    # 8. Register a recurring saved search for tomorrow + onward ----------
+    # 8. Register recurring saved searches for tomorrow + onward ----------
+    # One saved search per title query (same plan the live search ran), so
+    # the daily re-run covers the user's whole target set, not just the
+    # first title.
     if daily_recurrence:
         try:
             from ..integrations import scheduler as sched
-            label = f"Autopilot: {primary_query} ({'remote' if not location_pref else location_pref})"
-            query_blob = {
-                "query": primary_query,
-                "location": location_pref or None,
-                "is_remote": not bool(location_pref),
-                "sites": sites_list,
-                "results_per_site": int(search_results),
-                "hours_old": int(search_hours_old),
-            }
             conn = get_conn()
-            # Dedupe by label: if a saved search with this exact label
-            # already exists (from a prior autopilot run on the same target),
-            # update its query_blob in place instead of creating a duplicate.
-            existing = conn.execute(
-                "SELECT id FROM saved_search WHERE label = ? LIMIT 1",
-                (label,),
-            ).fetchone()
-            if existing:
-                sid = int(existing[0])
-                conn.execute(
-                    "UPDATE saved_search SET query_json = ?, frequency_hours = ?, "
-                    "enabled = 1 WHERE id = ?",
-                    (json.dumps(query_blob), 24, sid),
-                )
-                created = False
-            else:
-                cur = conn.execute(
-                    "INSERT INTO saved_search (label, query_json, frequency_hours, enabled, created_at) "
-                    "VALUES (?, ?, ?, 1, ?)",
-                    (label, json.dumps(query_blob), 24, time.time()),
-                )
-                sid = int(cur.lastrowid)
-                created = True
+            registered: list[dict] = []
+            any_created = False
+            for query in primary_queries:
+                label = f"Autopilot: {query} ({'remote' if not location_pref else location_pref})"
+                query_blob = {
+                    "query": query,
+                    "location": search_location,
+                    "is_remote": wants_remote,
+                    "sites": sites_list,
+                    "results_per_site": int(search_results),
+                    "hours_old": int(search_hours_old),
+                }
+                # Dedupe by label: if a saved search with this exact label
+                # already exists (from a prior autopilot run on the same
+                # target), update its query_blob in place instead of
+                # creating a duplicate.
+                existing = conn.execute(
+                    "SELECT id FROM saved_search WHERE label = ? LIMIT 1",
+                    (label,),
+                ).fetchone()
+                if existing:
+                    sid = int(existing[0])
+                    conn.execute(
+                        "UPDATE saved_search SET query_json = ?, frequency_hours = ?, "
+                        "enabled = 1 WHERE id = ?",
+                        (json.dumps(query_blob), 24, sid),
+                    )
+                    created = False
+                else:
+                    cur = conn.execute(
+                        "INSERT INTO saved_search (label, query_json, frequency_hours, enabled, created_at) "
+                        "VALUES (?, ?, ?, 1, ?)",
+                        (label, json.dumps(query_blob), 24, time.time()),
+                    )
+                    sid = int(cur.lastrowid)
+                    created = True
+                any_created = any_created or created
+                registered.append({"id": sid, "label": label, "created": created})
             try:
                 sched.register_saved_searches()
             except Exception as exc:  # noqa: BLE001
                 log.debug("scheduler register hint failed: %s", exc)
-            summary["saved_search"]["created"] = created
-            summary["saved_search"]["id"] = sid
-            summary["saved_search"]["label"] = label
+            summary["saved_search"]["created"] = any_created
+            summary["saved_search"]["id"] = registered[0]["id"] if registered else None
+            summary["saved_search"]["label"] = registered[0]["label"] if registered else None
+            summary["saved_search"]["searches"] = registered
             summary["steps"].append({"name": "saved_search_registered", "status": "ok",
-                                     "detail": f"id={sid} runs every 24h ({'created' if created else 'updated existing'})"})
+                                     "detail": f"{len(registered)} saved search(es), each runs every 24h"})
         except Exception as exc:  # noqa: BLE001
             log.warning("autopilot saved-search step failed: %s", exc)
             summary["steps"].append({"name": "saved_search_registered", "status": "error",

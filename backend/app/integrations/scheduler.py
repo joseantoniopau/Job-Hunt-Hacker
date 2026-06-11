@@ -219,6 +219,11 @@ def _run_saved_search(saved_search_id: int) -> dict:
     if not requested:
         requested = list(REGISTRY.keys())
 
+    # extra.sites is read by the jobspy adapter and must contain SCRAPER
+    # names (indeed/google/...), not adapter ids — passing adapter ids
+    # ("jobspy", "greenhouse") filters to an empty list inside the adapter,
+    # which then silently returns no results. An empty list here lets the
+    # adapter fall back to its default scraper set.
     q = JobSearchQuery(
         query=query.get("query") or "",
         location=query.get("location"),
@@ -228,7 +233,7 @@ def _run_saved_search(saved_search_id: int) -> dict:
         country=query.get("country") or "usa",
         employment_type=query.get("employment_type"),
         distance=query.get("distance"),
-        extra={"sites": sites},
+        extra={"sites": [s for s in sites if s in jobspy_sites]},
     )
     sres = search_all(q, requested)
     pres = persist(sres.get("records") or [])
