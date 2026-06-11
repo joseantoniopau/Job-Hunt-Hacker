@@ -1,0 +1,29 @@
+# Pre-commit hooks for Job-Hunt-Hacker.
+#
+#   pip install pre-commit && pre-commit install
+#
+# Ruff lint + format run on every commit. Pytest is available as a manual
+# pre-push gate (it's too slow for every commit) — run it with:
+#
+#   pre-commit run --hook-stage push pytest-quick
+#
+# Ruff is currently advisory in CI while the legacy import-ordering debt is
+# cleared; these hooks auto-fix new code so the debt stops growing.
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.6.9
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format
+
+  - repo: local
+    hooks:
+      - id: pytest-quick
+        name: pytest (unit suite, excludes load/integration)
+        entry: python -m pytest -q --ignore=tests/load --ignore=tests/integration -p no:cacheprovider
+        language: system
+        pass_filenames: false
+        stages: [push]
+        env:
+          JHH_LLM_PROVIDER: template

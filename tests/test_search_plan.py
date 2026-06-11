@@ -11,7 +11,7 @@ import time
 
 import pytest
 
-from backend.app.db import get_conn, init_db, tx
+from backend.app.db import init_db, tx
 from backend.app.matching.location_parser import match_location, parse_location
 from backend.app.services.search_plan import build_search_plan
 

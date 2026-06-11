@@ -9,7 +9,11 @@ from backend.app.config import settings
 from backend.app.db import get_conn, tx
 from backend.app.services.job_sources import pipeline
 from backend.app.services.job_sources.base import (
-    JobRecord, JobSearchQuery, JobSourceAdapter, REGISTRY, SourcePolicy,
+    REGISTRY,
+    JobRecord,
+    JobSearchQuery,
+    JobSourceAdapter,
+    SourcePolicy,
 )
 
 
@@ -110,7 +114,7 @@ def test_proxy_threaded_into_jobspy(monkeypatch):
 
 def test_retry_logging_callback_present():
     # wrap_with_retry should install a before_sleep logger when tenacity exists.
-    from backend.app.services.job_sources.retry import wrap_with_retry, _import_tenacity
+    from backend.app.services.job_sources.retry import _import_tenacity, wrap_with_retry
     if _import_tenacity() is None:
         pytest.skip("tenacity not installed")
 

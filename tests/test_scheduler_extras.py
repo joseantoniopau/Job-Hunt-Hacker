@@ -3,11 +3,11 @@ from __future__ import annotations
 
 import json
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from backend.app.db import get_conn, tx
-from backend.app.integrations import scheduler as sched
 from backend.app.integrations import calendar_google
+from backend.app.integrations import scheduler as sched
 
 
 def _mk_saved_search(query: dict) -> int:
@@ -91,7 +91,7 @@ def test_find_slots_timezone_local_window():
                                           work_hours=(9, 17), tz="America/New_York")
 
     def utc_hours(slots):
-        return {datetime.fromisoformat(s.replace("Z", "+00:00")).astimezone(timezone.utc).hour
+        return {datetime.fromisoformat(s.replace("Z", "+00:00")).astimezone(UTC).hour
                 for s in slots}
 
     # For NY slots, the UTC hour of each slot is offset (>=13 for 9am ET).
