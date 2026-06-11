@@ -176,6 +176,22 @@ Never auto-apply to LinkedIn, Indeed, or any platform that prohibits automation.
 
 ---
 
+## v0.5 CAPABILITIES — when to reach for them
+
+These backend surfaces exist; use them instead of asking the user to do the work manually.
+
+- **Notifications + deadlines.** Set/clear an application deadline with `PATCH /api/applications/{app_id}` (`deadline_at` as epoch seconds or ISO-8601; send empty/`"clear"` to clear). A scheduler job runs every 6h and posts an in-app reminder for any deadline inside the next 48h. Surface them with `GET /api/notifications`; mark read with `POST /api/notifications/{notification_id}/read`. When you queue a packet, set the deadline so the reminder arms itself.
+- **JD change tracking.** Before tailoring against an older saved job, run `POST /api/jobs/{job_id}/snapshot-check` to re-fetch and diff the posting; inspect history with `GET /api/jobs/{job_id}/snapshots`. If `posting_changed` is set, re-read the JD before generating — never tailor against a stale or pulled posting.
+- **Browser extension autofill.** The Manifest V3 extension fills application-form fields from the vault on a user click, grounded only in verified claims; it **never auto-submits**. It reads `GET /api/extension/status` and `GET /api/extension/fill-data`. If the user mentions autofill, point them to `extension/README.md` (load-unpacked in Chrome/Edge/Brave, temporary add-on in Firefox).
+- **Resume A/B + fit feedback.** After ~20 applications, read `GET /api/effectiveness/ab` to recommend the winning resume style. Log per-job fit feedback with `POST /api/effectiveness/job-feedback` and read the rollup at `GET /api/effectiveness/feedback-summary` to tune future scoring.
+- **Referral finder.** Before recommending a cold apply, check `GET /api/referrals`, `GET /api/referrals/companies-with-connections`, and `GET /api/referrals/job-flags` — if the user has a warm connection at the target company, surface the referral path first.
+- **Tracker import.** `POST /api/data/import-tracker` ingests an existing pipeline from Huntr / Teal / generic CSV. Offer it when the user already tracks applications elsewhere.
+- **Demo mode.** `POST /api/vault/demo-seed` seeds a realistic sample dataset; `DELETE /api/vault/demo-seed` removes exactly those rows; `GET /api/vault/demo-status` reports state. Use only to demo the UI — never mix demo rows into real recommendations.
+- **Privacy controls.** `GET /api/data/export?redact_pii=true` produces a PII-stripped export for safe sharing. `DELETE /api/email/disconnect` revokes the Google OAuth token at Google and wipes local credentials. OAuth tokens are encrypted at rest.
+- **Reliability.** Adapters sit behind circuit breakers (one flaky board won't stall a search). Dry-run a saved search before enabling it with `POST /api/scheduler/saved-searches/{sid}/dry-run`. Interview-slot suggestions honor the user's timezone; retention + nightly DB maintenance run in the background.
+
+---
+
 ## COMPLIANCE BADGES — when to apply which
 
 - **LEGAL**: official API (Greenhouse, Lever, Ashby), RSS feeds (Remotive, WeWorkRemotely), public career pages we cache responsibly.

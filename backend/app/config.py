@@ -15,7 +15,7 @@ ENV_FILE = ROOT / ".env"
 # Single source of truth for the app version — main.py (FastAPI metadata,
 # which /api/updates/check reads), /api/settings, and data exports all
 # reference this.
-APP_VERSION = "0.4.0"
+APP_VERSION = "0.5.0"
 
 
 def _load_env_file() -> None:

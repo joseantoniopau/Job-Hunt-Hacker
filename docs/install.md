@@ -50,6 +50,39 @@ python -m uvicorn backend.app.main:app --host 127.0.0.1 --port 8731
 
 ---
 
+## Browser extension (optional autofill assistant)
+
+A Manifest V3 extension that fills job-application form fields from your local
+vault on click. It is **evidence-grounded** (values come from verified claims via
+`GET /api/extension/fill-data`), talks **only** to your local server
+(`http://127.0.0.1:8731`), and **never auto-submits** — nothing is written until
+you click FILL, and no submit button is ever clicked for you. Full details in
+[`extension/README.md`](https://github.com/joseantoniopau/Job-Hunt-Hacker/blob/main/extension/README.md).
+
+The app must be running first (`./run.sh`).
+
+### Chrome / Edge / Brave
+
+1. Open `chrome://extensions/` and toggle **Developer mode** on.
+2. Click **Load unpacked** and select the `extension/` directory in the repo.
+3. Pin "Job Hunt Hacker — Autofill Assistant" to the toolbar.
+4. On any application page, click the icon → **SCAN & AUTOFILL THIS PAGE**.
+
+### Firefox
+
+1. Open `about:debugging#/runtime/this-firefox`.
+2. **Load Temporary Add-on…** → pick `extension/manifest.json`.
+   (Temporary add-ons are removed on browser restart; permanent installs need
+   Mozilla signing.)
+
+If you run JHH on a non-default port, set the server URL in the extension popup
+**and** add the matching origin to `host_permissions` in
+`extension/manifest.json`, then reload the extension. If local bearer-token auth
+(`JHH_AUTH_TOKEN`) is enabled, disable it locally — the extension does not send
+auth headers.
+
+---
+
 ## 2. Docker (single container)
 
 The published image lives at `ghcr.io/joseantoniopau/job-hunt-hacker`. The container

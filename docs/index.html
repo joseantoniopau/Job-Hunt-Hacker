@@ -16,7 +16,7 @@
     href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Serif:wght@400;600;700&display=swap"
     rel="stylesheet"
   />
-  <link rel="stylesheet" href="./styles.css?v=2026061001" />
+  <link rel="stylesheet" href="./styles.css?v=2026061101" />
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
   <meta http-equiv="Pragma" content="no-cache" />
   <meta http-equiv="Expires" content="0" />
@@ -32,7 +32,7 @@
 
   <!-- ===== HERO ===== -->
   <header class="hero">
-    <p class="kicker">v0.4 · A local skill, not a SaaS</p>
+    <p class="kicker">v0.5 · A local skill, not a SaaS</p>
     <h1 class="hero-title">JOB HUNT HACKER</h1>
     <p class="hero-tagline">
       Your own AI headhunter. Honest by construction.
@@ -54,7 +54,7 @@
       <span class="pill pill-blue">MIT licensed</span>
       <span class="pill pill-green">Runs offline</span>
       <span class="pill pill-warn">Auto-apply OFF by default</span>
-      <span class="pill pill-accent">NEW · OFFER ANALYSIS + INTERVIEW CO-PILOT + LLM OBSERVABILITY</span>
+      <span class="pill pill-accent">NEW · BROWSER EXTENSION AUTOFILL + REFERRAL FINDER + RESUME A/B</span>
     </div>
     <p class="scroll-cue">Scroll for the receipts</p>
   </header>
@@ -70,7 +70,7 @@
       <span class="stat-label">Industries</span>
     </div>
     <div class="stat">
-      <span class="stat-num">160</span>
+      <span class="stat-num">178</span>
       <span class="stat-label">API endpoints</span>
     </div>
     <div class="stat">
@@ -224,8 +224,20 @@
           <p>Point at Ollama and run a fully local model — zero cloud egress. Provider preference, model choice, and connection test all in Settings. Deterministic template fallback when no LLM at all.</p>
         </article>
         <article class="card">
+          <h3>Browser extension autofill</h3>
+          <p>A Manifest V3 extension fills application-form fields from your vault on click — name, contact, links, cover letter, resume text — grounded only in verified claims. Local-only network, and it <strong>never auto-submits</strong>. Load-unpacked in Chrome/Edge/Brave.</p>
+        </article>
+        <article class="card">
+          <h3>Referral finder + resume A/B</h3>
+          <p>Map your network to live jobs — instantly see which target companies you already have a warm connection at — and run win-rate A/B across resume versions plus a per-job fit-feedback loop so the skill learns which style actually earns replies.</p>
+        </article>
+        <article class="card">
+          <h3>Deadlines, notifications + JD change tracking</h3>
+          <p>Set a deadline on any application and get in-app reminders before it lapses. Re-fetch a posting to diff it against the last capture so you never tailor against a stale or pulled job. Import an existing pipeline from Huntr / Teal / CSV.</p>
+        </article>
+        <article class="card">
           <h3>Observability + security</h3>
-          <p>Structured JSON logs, Prometheus metrics, audit log retention, request IDs, optional bearer-token auth, per-IP rate limiting, SSRF protection, file upload caps.</p>
+          <p>Structured JSON logs, Prometheus metrics, audit log retention, request IDs, optional bearer-token auth, per-IP rate limiting, SSRF protection, file upload caps, adapter circuit breakers, encrypted OAuth tokens, redacted export, and one-click Google disconnect + token revoke.</p>
         </article>
       </div>
     </section>
@@ -490,7 +502,7 @@
         </details>
         <details>
           <summary>What's the architecture?</summary>
-          <p>FastAPI backend, 28-table SQLite vault, 36 API routers exposing 160 endpoints, vanilla brutalist HTML/CSS/JS UI, 146-test suite. Optional LLM providers (Anthropic / OpenAI / Ollama / template fallback) with full call observability. Optional Gmail + Google Calendar via OAuth. Background scheduler via APScheduler. Vector retrieval via SQLite + numpy cosine (OpenAI / sentence-transformers / hashing fallback). Read <a href="https://github.com/joseantoniopau/Job-Hunt-Hacker#architecture">the README architecture diagram</a>.</p>
+          <p>FastAPI backend, 30-table SQLite vault, 37 API routers exposing 178 endpoints across 9 job sources, vanilla brutalist HTML/CSS/JS UI, 319-test suite. Optional LLM providers (Anthropic / OpenAI / Ollama / template fallback) with full call observability. Optional Gmail + Google Calendar via OAuth. Optional Manifest V3 browser extension for evidence-grounded, never-auto-submitting autofill. Background scheduler via APScheduler. Vector retrieval via SQLite + numpy cosine (OpenAI / sentence-transformers / hashing fallback). Read <a href="https://github.com/joseantoniopau/Job-Hunt-Hacker#architecture">the README architecture diagram</a>.</p>
         </details>
         <details>
           <summary>How do I report a bug or contribute?</summary>
@@ -511,14 +523,15 @@
         <li>✓ Phase 6 — Gmail / IMAP / Google Calendar / ICS integrations</li>
         <li>✓ Phase 7 — Assisted apply, packet builder, auto-prep queue (no auto-submit)</li>
         <li>✓ v0.3 — Autopilot, INTEL + NETWORK tabs, salary intel, networking, velocity, gaps, A/B effectiveness, negotiation script, followup orchestration, agnostic industry coverage, observability, security hardening, browser extension scaffold</li>
-        <li>✓ <strong>v0.4 — Offer analysis + comparison, interview co-pilot (prep packets + scored mock practice), LLM semantic rerank, LLM observability with human review gates, career snapshot + base resume, local Ollama panel, LinkedIn paste ingestion, saved-search pause/resume, full 28-table data export, keyboard-driven UI (shortcuts, quick filters, sticky headers, activity bar)</strong></li>
+        <li>✓ v0.4 — Offer analysis + comparison, interview co-pilot (prep packets + scored mock practice), LLM semantic rerank, LLM observability with human review gates, career snapshot + base resume, local Ollama panel, LinkedIn paste ingestion, saved-search pause/resume, full data export, keyboard-driven UI (shortcuts, quick filters, sticky headers, activity bar)</li>
+        <li>✓ <strong>v0.5 — Browser extension autofill assistant (evidence-grounded, never auto-submits), notifications + application deadlines, JD change tracking, resume A/B win-rate analytics + job fit-feedback loop, referral finder, tracker import (Huntr/Teal/CSV), demo mode, redacted export, Google disconnect + token revoke, adapter circuit breakers, scheduler dry-run, retention + nightly maintenance jobs, timezone-aware interview slots</strong></li>
       </ol>
     </section>
 
   </main>
 
   <footer class="site-footer">
-    <p>JOB&nbsp;HUNT&nbsp;HACKER &middot; v0.4 &middot; MIT licensed &middot; never invents career facts</p>
+    <p>JOB&nbsp;HUNT&nbsp;HACKER &middot; v0.5 &middot; MIT licensed &middot; never invents career facts</p>
     <p>
       <a href="https://github.com/joseantoniopau/Job-Hunt-Hacker">GitHub</a>
       &middot;

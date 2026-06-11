@@ -22,7 +22,14 @@ It is the third public skill in the *Hacker* series, after [Flight Hacker](https
 - **Pipeline tracker** — kanban board (Saved → Prepared → Applied → Replied → Interview → Offer / Rejected). Follow-up reminders.
 - **Inbox monitoring** (optional Gmail OAuth or IMAP) — classifies recruiter replies (rejection / interview / assessment / offer), drafts responses (never auto-sends).
 - **Calendar integration** (optional Google Calendar or ICS fallback) — manages interview availability windows, suggests slots, creates events on approval.
-- **Saved searches + scheduler** — APScheduler runs configured searches on a cron, dedupes new jobs, scores them, surfaces a daily digest.
+- **Saved searches + scheduler** — APScheduler runs configured searches on a cron, dedupes new jobs, scores them, surfaces a daily digest. Dry-run any saved search before it goes live (`POST /api/scheduler/saved-searches/{sid}/dry-run`). Background jobs honor your timezone for interview slot suggestions, run email/calendar retention, and do nightly DB maintenance.
+- **Notifications + application deadlines** — set a deadline on any application (`PATCH /api/applications/{id}` with `deadline_at`); a scheduler job runs every 6h and drops an in-app reminder for deadlines inside the next 48h. Read and clear them via `GET /api/notifications` and `POST /api/notifications/{id}/read`.
+- **JD change tracking** — re-fetch a posting and diff it against the last capture (`POST /api/jobs/{id}/snapshot-check`), review the history (`GET /api/jobs/{id}/snapshots`), and see `posting_changed` flags so you never tailor against a stale or pulled job.
+- **Browser extension autofill assistant** — a Manifest V3 extension fills application-form fields from your vault on click. Evidence-grounded, local-only, and it **NEVER auto-submits**. Backed by `GET /api/extension/status` and `GET /api/extension/fill-data`. See `extension/README.md`.
+- **Resume A/B win-rate analytics + fit-feedback loop** — compare which resume version actually earns replies (`GET /api/effectiveness/ab`), log per-job fit feedback (`POST /api/effectiveness/job-feedback`), and read the rollup (`GET /api/effectiveness/feedback-summary`).
+- **Referral finder** — map your network to live jobs: `GET /api/referrals`, `GET /api/referrals/companies-with-connections`, `GET /api/referrals/job-flags` surface which target companies you already have a warm connection at.
+- **Tracker import** — bring an existing pipeline in from Huntr / Teal / generic CSV via `POST /api/data/import-tracker`.
+- **Demo mode** — seed and tear down a realistic sample dataset to explore the UI without your own data: `POST /api/vault/demo-seed`, `DELETE /api/vault/demo-seed`, `GET /api/vault/demo-status`.
 - **Auto-apply (off by default, heavily gated)** — even when enabled, *prepares packets autonomously*, never auto-submits to platforms. Explicit kill switch, daily cap, min-score floor, source allowlist.
 
 ## What it does NOT do
@@ -101,6 +108,8 @@ To uninstall:
 ---
 
 ## Architecture
+
+FastAPI backend with **37 routers** exposing **178 API endpoints**, a **30-table** SQLite vault, **9 job sources**, and a **319-test** suite. Vanilla brutalist HTML/CSS/JS UI. Optional LLM providers (Anthropic / OpenAI / Ollama / deterministic template fallback). Optional Gmail + Google Calendar via OAuth. Background scheduler via APScheduler. Optional Manifest V3 browser extension for evidence-grounded, never-auto-submitting autofill (`extension/`).
 
 ```
 backend/
@@ -245,6 +254,9 @@ Every auto-apply attempt is audit-logged. The review queue lives at `GET /api/au
 - Everything is local-first. The SQLite vault lives in `data/jhh.db`. Uploaded files live in `uploads/`. Tailored resumes live in `resumes/`. Packets live in `packets/`.
 - No telemetry. No analytics. No background uploads.
 - When you configure an LLM API key, the contents of your evidence + job posts are sent to that provider as part of normal completion calls. Use Ollama if you want zero cloud egress.
+- **Redacted export** — `GET /api/data/export?redact_pii=true` produces a portable JSON dump with contact info, email bodies, and other PII stripped, for safe sharing or backup.
+- **Google disconnect + revoke** — `DELETE /api/email/disconnect` best-effort revokes the OAuth token at Google and wipes the stored credentials locally. OAuth tokens are encrypted at rest (enforced).
+- **Reliability** — job-source adapters sit behind circuit breakers so one flaky board can't stall a search; scheduled email/calendar retention and nightly DB maintenance jobs keep storage bounded.
 - Delete all data: Settings → "Delete my data" (double-confirm, removes `data/jhh.db` + reinitializes empty).
 
 ---
@@ -257,7 +269,8 @@ Phase 3 — Resume tailoring (12 styles), cover letters, provenance, honesty rep
 Phase 4 — Greenhouse / Lever / Ashby / Remotive / WWR / Google Jobs adapters. **Shipped.**
 Phase 5 — Scheduler, saved searches, application pipeline, follow-up reminders. **Shipped.**
 Phase 6 — Gmail / IMAP / Google Calendar / ICS integrations. **Shipped (OAuth setup required).**
-Phase 7 — Optional local browser form-fill assistant for *eligible* platforms only, with explicit per-platform consent. **Future.**
+Phase 7 — Assisted-apply, packet builder, auto-prep queue (no auto-submit). **Shipped.**
+v0.5 — Browser extension autofill assistant (evidence-grounded, never auto-submits), notifications + application deadlines, JD change tracking, resume A/B win-rate analytics + job fit-feedback loop, referral finder, tracker import (Huntr/Teal/CSV), demo mode, redacted export, Google disconnect+revoke, adapter circuit breakers, scheduler dry-run, retention + nightly maintenance jobs, timezone-aware interview slots. **Shipped.**
 
 ---
 
