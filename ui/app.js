@@ -1160,6 +1160,23 @@
     $('#jd-interview').addEventListener('click', () => state.selectedJob && interviewPrepForJob(state.selectedJob.id));
     $('#jd-rescore').addEventListener('click', () => state.selectedJob && rescoreJob(state.selectedJob.id));
     $('#jd-archive').addEventListener('click', () => state.selectedJob && archiveJob(state.selectedJob.id));
+    $('#jd-fit-good').addEventListener('click', () => state.selectedJob && submitJobFeedback(state.selectedJob.id, 'good_fit'));
+    $('#jd-fit-bad').addEventListener('click', () => state.selectedJob && submitJobFeedback(state.selectedJob.id, 'bad_fit'));
+  }
+
+  // Fit feedback feeds scorer.load_feedback_adjustments — nudges role-family
+  // weighting after >=5 signals. Buttons disable after a vote.
+  async function submitJobFeedback(jobId, verdict) {
+    const status = $('#jd-fit-status');
+    const r = await api.post('/api/effectiveness/job-feedback', { job_id: jobId, verdict });
+    if (r.ok) {
+      toast(verdict === 'good_fit' ? 'Marked good fit — the scorer will learn from it.'
+                                   : 'Marked bad fit — similar roles will rank lower.', 'success');
+      const g = $('#jd-fit-good'), b = $('#jd-fit-bad');
+      if (g) g.disabled = true;
+      if (b) b.disabled = true;
+      if (status) status.textContent = verdict === 'good_fit' ? '✓ good fit' : '✓ bad fit';
+    }
   }
   // LLM scores side-dict, keyed by job_id, loaded alongside /api/jobs.
   state.llmScores = {};
@@ -1192,6 +1209,7 @@
 
     renderJobsTable();
     updateSortToggleUI();
+    loadReferralFlags();  // async; re-renders to add REFERRAL pills
   }
 
   // Client-side text filter over the rendered jobs table. Matches against
@@ -1712,6 +1730,10 @@
       wrap.appendChild(el('span', { class: 'badge ' + (score >= 85 ? 'badge-green' : score >= 70 ? 'badge-blue' : 'badge-warn'), text: scoreLabel(score) }));
     }
     if (j.is_remote) wrap.appendChild(el('span', { class: 'badge badge-blue', text: 'REMOTE' }));
+    if (j.posting_changed) wrap.appendChild(el('span', { class: 'badge badge-warn',
+      title: 'This posting changed since you saved/applied', text: 'CHANGED' }));
+    if (state.referralFlags && state.referralFlags[j.id]) wrap.appendChild(el('span', {
+      class: 'badge badge-green', title: 'You have a connection at this company', text: 'REFERRAL' }));
     if (j.source && ['linkedin','indeed','glassdoor'].includes(j.source)) {
       wrap.appendChild(el('span', { class: 'badge badge-warn', text: 'GRAY' }));
     } else if (j.source && ['greenhouse','lever','ashby','remotive','wwr','rss','remoteintech'].includes(j.source)) {
@@ -1719,10 +1741,29 @@
     }
     return wrap;
   }
+
+  // Batch-fetch referral availability for the visible jobs, then re-badge.
+  async function loadReferralFlags() {
+    const jobs = state.jobs || [];
+    const ids = jobs.map(j => j.id).filter(Boolean);
+    if (!ids.length) return;
+    const r = await api.get('/api/referrals/job-flags?job_ids=' + ids.join(','), { silent: true });
+    if (!r.ok || !r.data) return;
+    const flags = {};
+    let any = false;
+    for (const [k, v] of Object.entries(r.data)) { flags[k] = !!v; if (v) any = true; }
+    state.referralFlags = flags;
+    if (any) renderJobsTable();  // re-render so REFERRAL pills appear
+  }
   async function openJobDetail(job) {
     state.selectedJob = job;
     const det = $('#job-detail');
     det.classList.remove('hidden');
+    // Reset fit-feedback controls for the newly-opened job.
+    const fg = $('#jd-fit-good'), fb = $('#jd-fit-bad'), fs = $('#jd-fit-status');
+    if (fg) fg.disabled = false;
+    if (fb) fb.disabled = false;
+    if (fs) fs.textContent = '';
     $('#jd-title').textContent = `${job.title || '—'} · ${job.company || '—'}`;
     const meta = $('#jd-meta'); meta.innerHTML = '';
     [['LOC', job.location || (job.is_remote ? 'remote' : '—')],
@@ -2092,6 +2133,14 @@
           el('div', { class: 'kc-title', text: safeText(app.title || ('app#' + app.id)) }),
           el('div', { class: 'kc-meta', text: `${safeText(app.company || '')} · score ${app.score ?? '—'}` }),
         ];
+        if (app.deadline_at) {
+          const dlSec = app.deadline_at < 1e12 ? app.deadline_at : app.deadline_at / 1000;
+          const hoursLeft = (dlSec - Date.now() / 1000) / 3600;
+          const cls = hoursLeft < 0 ? 'kc-deadline overdue' : hoursLeft < 48 ? 'kc-deadline soon' : 'kc-deadline';
+          const when = new Date(dlSec * 1000).toISOString().slice(0, 10);
+          children.push(el('div', { class: cls,
+            text: (hoursLeft < 0 ? '⚠ deadline passed ' : 'deadline ') + when }));
+        }
         if (showAnalyze) {
           children.push(el('button', {
             class: 'btn btn-secondary small', type: 'button',
@@ -2127,6 +2176,11 @@
         value: app.next_followup_at ? new Date(app.next_followup_at * (app.next_followup_at < 1e12 ? 1000 : 1)).toISOString().slice(0,10) : '' }),
     ]));
     body.appendChild(el('label', {}, [
+      'Application deadline (YYYY-MM-DD)',
+      el('input', { id: 'app-deadline', type: 'date',
+        value: app.deadline_at ? new Date(app.deadline_at * (app.deadline_at < 1e12 ? 1000 : 1)).toISOString().slice(0,10) : '' }),
+    ]));
+    body.appendChild(el('label', {}, [
       'Application URL',
       el('input', { id: 'app-url', type: 'url', value: safeText(app.application_url || '') }),
     ]));
@@ -2150,9 +2204,12 @@
       },
     }, 'INTERVIEW PREP'));
     $('#card-save-btn').onclick = async () => {
+      const dl = $('#app-deadline').value;
       const payload = {
         notes: $('#app-notes').value,
         application_url: $('#app-url').value || null,
+        // epoch seconds, or null to clear
+        deadline_at: dl ? Math.round(new Date(dl).getTime() / 1000) : null,
       };
       const r = await api.patch('/api/applications/' + app.id, payload);
       if (!r.ok) return;
@@ -2954,7 +3011,8 @@
       const status = $('#data-status');
       if (status) status.textContent = 'preparing export…';
       try {
-        const r = await fetch('/api/data/export', { method: 'GET' });
+        const redact = $('#export-redact') && $('#export-redact').checked;
+        const r = await fetch('/api/data/export' + (redact ? '?redact_pii=true' : ''), { method: 'GET' });
         if (!r.ok) {
           const txt = await r.text();
           toast('Export failed: ' + (txt || r.status), 'error');
@@ -2980,6 +3038,47 @@
         if (status) status.textContent = 'export failed';
       }
     });
+
+    // Tracker import (Huntr / Teal / generic CSV)
+    const trackerInput = $('#tracker-import-file');
+    const trackerBtn = $('#tracker-import-btn');
+    if (trackerBtn && trackerInput) {
+      trackerBtn.addEventListener('click', () => trackerInput.click());
+      trackerInput.addEventListener('change', async () => {
+        const file = trackerInput.files && trackerInput.files[0];
+        if (!file) return;
+        const fmt = ($('#tracker-format') || {}).value || 'csv';
+        const status = $('#tracker-import-status');
+        const out = $('#tracker-import-result');
+        if (status) status.textContent = 'importing…';
+        if (out) out.innerHTML = '';
+        const fd = new FormData();
+        fd.append('file', file);
+        fd.append('format', fmt);
+        const r = await api.post('/api/data/import-tracker', fd);
+        trackerInput.value = '';
+        if (!r.ok) { if (status) status.textContent = 'import failed'; return; }
+        const d = r.data || {};
+        if (status) status.textContent = 'done';
+        if (out) {
+          for (const [k, label] of [['imported_jobs', 'Jobs imported'],
+              ['imported_applications', 'Applications imported'],
+              ['skipped_duplicates', 'Duplicates skipped']]) {
+            out.appendChild(el('div', { class: 'kv-row' }, [
+              el('span', { class: 'kv-key', text: label }),
+              el('span', { class: 'kv-val', text: String(d[k] ?? 0) }),
+            ]));
+          }
+          const errs = d.errors || [];
+          if (errs.length) out.appendChild(el('div', { class: 'kv-row' }, [
+            el('span', { class: 'kv-key', text: 'Row errors' }),
+            el('span', { class: 'kv-val ss-error', text: errs.slice(0, 5).join('; ') }),
+          ]));
+        }
+        toast(`Imported ${d.imported_jobs ?? 0} jobs, ${d.imported_applications ?? 0} applications.`, 'success');
+        loadJobs();
+      });
+    }
 
     const importInput = $('#import-data-file');
     $('#import-data').addEventListener('click', () => importInput && importInput.click());
@@ -3105,10 +3204,15 @@
         el('td', { text: safeText(s.label || '') }),
         el('td', { text: summary || '(no query)' }),
         el('td', { text: String(s.frequency_hours ?? 24) }),
-        el('td', { text: fmtRel(s.last_run_at) }),
+        el('td', {}, [
+          document.createTextNode(fmtRel(s.last_run_at)),
+          ...(s.last_error ? [el('div', { class: 'ss-error', title: s.last_error,
+            text: '⚠ ' + String(s.last_error).slice(0, 60) })] : []),
+        ]),
         el('td', { text: s.enabled ? 'yes' : 'no' }),
         el('td', {}, [
           el('button', { class: 'btn btn-ghost small', onclick: () => runSavedSearch(s.id) }, 'RUN NOW'),
+          el('button', { class: 'btn btn-ghost small', onclick: () => dryRunSavedSearch(s.id) }, 'DRY RUN'),
           el('button', { class: 'btn btn-ghost small', onclick: () => toggleSavedSearch(s.id, !s.enabled) },
              s.enabled ? 'PAUSE' : 'RESUME'),
           el('button', { class: 'btn btn-ghost small', onclick: () => deleteSavedSearch(s.id) }, 'DELETE'),
@@ -3148,6 +3252,16 @@
       loadSavedSearches();
       loadJobs();
     }
+  }
+
+  async function dryRunSavedSearch(sid) {
+    toast('Dry-running (no jobs saved)…');
+    const r = await api.post('/api/scheduler/saved-searches/' + sid + '/dry-run', {});
+    if (!r.ok) return;
+    const d = r.data || {};
+    const top = (d.top || []).map(t => `• ${t.title} — ${t.company}`).join('\n');
+    toast(`Dry run: ${d.would_insert} new / ${d.duplicates} dup of ${d.discovered} found.`, 'success');
+    alert(`DRY RUN (nothing saved)\n\nWould insert: ${d.would_insert}\nDuplicates: ${d.duplicates}\nDiscovered: ${d.discovered}\n\n${top || '(no sample)'}`);
   }
 
   async function toggleSavedSearch(sid, enabled) {
@@ -3766,9 +3880,40 @@
         }
       }
     }
+    // A/B by resume style
+    const abr = await api.get('/api/effectiveness/ab', { silent: true });
+    const abtb = $('#intel-ab tbody');
+    if (abtb) {
+      abtb.innerHTML = '';
+      const styles = (abr.ok && abr.data && abr.data.styles) || [];
+      if (!styles.length) {
+        abtb.appendChild(el('tr', {}, el('td', { colspan: 8, class: 'empty',
+          text: 'No A/B data yet — tailor in different styles and mark outcomes in Pipeline.' })));
+      } else {
+        const pct = (v) => ((v ?? 0) * 100).toFixed(0) + '%';
+        for (const s of styles) {
+          const tr = el('tr', { class: s.insufficient_data ? 'row-muted' : '',
+            title: s.caveat || '' }, [
+            el('td', {}, [
+              document.createTextNode(safeText(s.style || '—')),
+              ...(s.insufficient_data ? [el('span', { class: 'dup-badge', text: 'n<5' })] : []),
+            ]),
+            el('td', { text: String(s.sent ?? 0) }),
+            el('td', { text: String(s.replied ?? 0) }),
+            el('td', { text: String(s.interviewed ?? 0) }),
+            el('td', { text: String(s.offered ?? 0) }),
+            el('td', { text: pct(s.reply_rate) }),
+            el('td', { text: pct(s.interview_rate) }),
+            el('td', { text: pct(s.offer_rate) }),
+          ]);
+          abtb.appendChild(tr);
+        }
+      }
+    }
   }
 
   async function loadNetwork() {
+    loadReferralQuickPicks();
     const r = await api.get('/api/connections', { silent: true });
     const tb = $('#connections-table tbody');
     if (!tb) return;
@@ -3848,30 +3993,76 @@
         }
       });
     }
-    // Network: refer-at lookup
+    // Network: refer-at lookup (v0.5 — ranked referral finder)
     const rf = $('#refer-form');
     if (rf) {
       rf.addEventListener('submit', async (e) => {
         e.preventDefault();
         const co = rf.elements.namedItem('company').value.trim();
         if (!co) return;
-        const r = await api.get('/api/connections/refer/' + encodeURIComponent(co), { silent: true });
-        const list = $('#refer-results');
-        list.innerHTML = '';
-        const arr = (r.ok && (r.data || [])) || [];
-        if (!arr.length) {
-          list.appendChild(el('li', { class: 'muted', text: `No connections at ${co} (yet).` }));
-        } else {
-          for (const c of arr) {
-            list.appendChild(el('li', {
-              text: `${c.name} — ${c.role || ''} at ${c.company || co}${c.contact ? ' · ' + c.contact : ''}`
-            }));
-          }
-        }
+        await runReferralLookup(co);
       });
     }
     const refCo = $('#connections-refresh');
     if (refCo) refCo.addEventListener('click', loadNetwork);
+  }
+
+  const _MATCH_PILL = { current: 'badge-green', past: 'badge-blue', fuzzy: 'badge-warn', mention: 'badge-muted' };
+
+  async function runReferralLookup(company) {
+    const list = $('#refer-results');
+    if (!list) return;
+    list.innerHTML = '';
+    const r = await api.get('/api/referrals?company=' + encodeURIComponent(company), { silent: true });
+    const arr = (r.ok && (r.data || [])) || [];
+    if (!arr.length) {
+      list.appendChild(el('li', { class: 'muted', text: `No connections at ${company} (yet).` }));
+      return;
+    }
+    for (const item of arr) {
+      const c = item.connection || item;
+      const kind = item.match_kind || 'fuzzy';
+      const li = el('li', { class: 'refer-item' }, [
+        el('div', { class: 'refer-line' }, [
+          el('span', { class: 'badge ' + (_MATCH_PILL[kind] || 'badge-muted'), text: kind.toUpperCase() }),
+          el('strong', { text: safeText(c.name || '—') }),
+          el('span', { class: 'muted small', text: [c.role, item.matched_company || c.company].filter(Boolean).join(' · ') }),
+          c.last_contacted_at ? el('span', { class: 'muted small', text: 'last contact ' + fmtRel(c.last_contacted_at) }) : null,
+        ].filter(Boolean)),
+      ]);
+      if (item.suggested_message) {
+        const ta = el('textarea', { class: 'refer-msg', readonly: 'readonly', rows: '3' });
+        ta.value = item.suggested_message;
+        const copyBtn = el('button', { class: 'btn btn-ghost small', type: 'button',
+          onclick: () => { ta.select(); navigator.clipboard && navigator.clipboard.writeText(ta.value); toast('Message copied.', 'success'); } }, 'COPY');
+        li.appendChild(el('div', { class: 'refer-msg-row' }, [ta, copyBtn]));
+      }
+      list.appendChild(li);
+    }
+  }
+
+  async function loadReferralQuickPicks() {
+    const host = $('#refer-companies');
+    if (!host) return;
+    const r = await api.get('/api/referrals/companies-with-connections', { silent: true });
+    host.innerHTML = '';
+    const arr = (r.ok && (r.data || [])) || [];
+    if (!arr.length) { host.classList.add('hidden'); return; }
+    host.classList.remove('hidden');
+    host.appendChild(el('span', { class: 'muted small', text: 'Companies with a connection: ' }));
+    for (const c of arr.slice(0, 12)) {
+      const name = c.company || c.name;
+      if (!name) continue;
+      host.appendChild(el('button', {
+        class: 'chip', type: 'button',
+        title: `${c.connection_count || 1} connection(s)`,
+        onclick: () => {
+          const inp = $('#refer-form') && $('#refer-form').elements.namedItem('company');
+          if (inp) inp.value = name;
+          runReferralLookup(name);
+        },
+      }, `${name}${c.connection_count ? ' (' + c.connection_count + ')' : ''}`));
+    }
   }
 
   // ============================================================

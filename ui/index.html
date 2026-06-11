@@ -11,7 +11,7 @@
     href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Serif:wght@400;600;700&display=swap"
     rel="stylesheet"
   />
-  <link rel="stylesheet" href="/styles.css?v=2026061102" />
+  <link rel="stylesheet" href="/styles.css?v=2026061103" />
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
   <meta http-equiv="Pragma" content="no-cache" />
   <meta http-equiv="Expires" content="0" />
@@ -823,6 +823,12 @@
           <button class="btn btn-ghost"     id="jd-rescore">RESCORE</button>
           <button class="btn btn-ghost"     id="jd-archive">ARCHIVE</button>
         </div>
+        <div class="form-actions jd-feedback-row">
+          <span class="muted small">Was this a good match?</span>
+          <button class="btn btn-ghost small" id="jd-fit-good" title="Tells the scorer this role family fits you">GOOD&nbsp;FIT</button>
+          <button class="btn btn-ghost small" id="jd-fit-bad" title="Tells the scorer to down-weight this role family">BAD&nbsp;FIT</button>
+          <span id="jd-fit-status" class="muted small"></span>
+        </div>
       </section>
     </section>
 
@@ -1100,6 +1106,17 @@ Select a resume to preview.
       </div>
 
       <section class="card">
+        <header class="card-head"><h3>A/B by resume style</h3>
+          <span class="muted small">which style wins replies — styles with &lt;5 sends are flagged low-confidence</span></header>
+        <div class="table-wrap">
+          <table class="data-table" id="intel-ab">
+            <thead><tr><th>STYLE</th><th>SENT</th><th>REPLIED</th><th>INTERVIEW</th><th>OFFER</th><th>REPLY%</th><th>INTERVIEW%</th><th>OFFER%</th></tr></thead>
+            <tbody><tr><td colspan="8" class="empty">No A/B data yet — tailor in different styles and mark outcomes in Pipeline.</td></tr></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="card">
         <header class="card-head"><h3>Salary market read</h3>
           <span class="muted small">computed from local job postings (last 90 days)</span></header>
         <form id="intel-salary-form" class="three-col">
@@ -1162,7 +1179,8 @@ Select a resume to preview.
             <label>Company <input type="text" name="company" placeholder="Stripe" required /></label>
             <button class="btn btn-secondary" type="submit">FIND CONTACTS</button>
           </form>
-          <ul id="refer-results" class="bullets"></ul>
+          <div id="refer-companies" class="chip-row hidden"></div>
+          <ul id="refer-results" class="bullets refer-list"></ul>
         </section>
       </div>
 
@@ -1442,11 +1460,33 @@ Select a resume to preview.
         <p class="muted small">Export gives you a full archive of every byte. Delete wipes it permanently.</p>
         <div class="form-actions">
           <button class="btn btn-secondary" id="export-data">EXPORT ALL DATA</button>
+          <label class="redact-label" title="Mask name/email/phone, email bodies, and calendar details in the export">
+            <input type="checkbox" id="export-redact" /> Redact PII
+          </label>
           <button class="btn btn-secondary" id="import-data">IMPORT DATA</button>
           <button class="btn btn-warn"      id="delete-data">DELETE MY DATA</button>
           <span id="data-status" class="status-line"></span>
         </div>
         <input type="file" id="import-data-file" accept=".json" hidden />
+      </section>
+
+      <section class="card">
+        <header class="card-head">
+          <h3>Import from another tracker</h3>
+          <span class="muted small">Huntr, Teal, or a generic CSV</span>
+        </header>
+        <p class="muted small">Bring your existing pipeline in. Jobs + applications are created and de-duplicated; their stage names are mapped to this app's pipeline.</p>
+        <div class="form-actions">
+          <select id="tracker-format" class="quick-filter" aria-label="Tracker format">
+            <option value="csv">Generic CSV</option>
+            <option value="huntr">Huntr CSV</option>
+            <option value="teal">Teal CSV</option>
+          </select>
+          <button class="btn btn-secondary" id="tracker-import-btn">CHOOSE FILE &amp; IMPORT</button>
+          <span id="tracker-import-status" class="status-line"></span>
+        </div>
+        <input type="file" id="tracker-import-file" accept=".csv,text/csv" hidden />
+        <div id="tracker-import-result" class="kv-grid"></div>
       </section>
     </section>
   </main>
@@ -1725,6 +1765,6 @@ Select a resume to preview.
       &middot; <button type="button" id="kbd-hint" class="kbd-hint" title="Show keyboard shortcuts">press <kbd>?</kbd> for shortcuts</button></p>
   </footer>
 
-  <script src="/app.js?v=2026061102" defer></script>
+  <script src="/app.js?v=2026061103" defer></script>
 </body>
 </html>

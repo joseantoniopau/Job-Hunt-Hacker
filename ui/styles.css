@@ -3213,3 +3213,26 @@ kbd {
   align-items: center; flex-wrap: wrap; border: 2px dashed var(--hair-strong);
   background: var(--card-2);
 }
+
+/* ===== v0.5 — referral finder + chips + A/B row ===== */
+.chip-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 8px 0; }
+.chip {
+  font-family: var(--mono); font-size: 11px; padding: 3px 8px;
+  background: var(--card-2); border: 1px solid var(--hair-strong); cursor: pointer;
+}
+.chip:hover { background: var(--secondary-soft); }
+.refer-list { list-style: none; padding: 0; }
+.refer-item { padding: 10px 0; border-bottom: 1px solid var(--hair); }
+.refer-line { display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline; }
+.refer-msg-row { display: flex; gap: 6px; margin-top: 6px; align-items: flex-start; }
+.refer-msg { flex: 1; font-family: var(--mono); font-size: 12px; padding: 6px; border: var(--border-thin); background: var(--input-bg); resize: vertical; }
+.badge-muted { background: var(--card-2); color: var(--muted); border: 1px solid var(--hair-strong); }
+.row-muted { opacity: 0.55; }
+.jd-feedback-row { align-items: center; gap: 8px; }
+
+/* ===== v0.5 — settings/pipeline/saved-search bits ===== */
+.redact-label { font-family: var(--mono); font-size: 11px; display: inline-flex; align-items: center; gap: 5px; }
+.ss-error { color: var(--accent); font-size: 11px; font-family: var(--mono); }
+.kc-deadline { margin-top: 5px; font-family: var(--mono); font-size: 10.5px; padding: 1px 5px; display: inline-block; border: 1px solid var(--hair-strong); }
+.kc-deadline.soon { background: var(--warn-soft); color: var(--warn); border-color: var(--warn); }
+.kc-deadline.overdue { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); font-weight: 700; }
