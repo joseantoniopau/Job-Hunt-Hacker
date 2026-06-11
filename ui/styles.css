@@ -3164,3 +3164,21 @@ kbd {
   top: 0;
   z-index: 2;
 }
+
+/* Per-location duplicate badge on collapsed job rows */
+.dup-badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 5px;
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  background: var(--card-2);
+  border: 1px solid var(--hair-strong);
+  cursor: help;
+}
+
+.min-score-select {
+  min-width: 0;
+  padding: 7px 6px;
+}

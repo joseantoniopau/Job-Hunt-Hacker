@@ -1196,15 +1196,27 @@
   // Client-side text filter over the rendered jobs table. Matches against
   // the full row text (title/company/location/source/badges) so the user
   // can narrow 200 results to "remote staff" without another server call.
+  function getMinScore() {
+    try { return parseInt(localStorage.getItem('jhh.dashboard.minScore') || '0', 10) || 0; }
+    catch (_) { return 0; }
+  }
+
   function applyJobsFilter() {
     const input = $('#jobs-quick-filter');
     const body = $('#results-table tbody');
     if (!body) return;
     const needle = ((input && input.value) || '').trim().toLowerCase();
+    const minScore = getMinScore();
     const rows = $$('tr[data-job-id]', body);
     let visible = 0;
     for (const tr of rows) {
-      const hit = !needle || tr.textContent.toLowerCase().includes(needle);
+      const textHit = !needle || tr.textContent.toLowerCase().includes(needle);
+      // Unscored rows (no data-score) stay visible — hiding them would
+      // mask a scoring failure rather than filter noise.
+      const sAttr = tr.getAttribute('data-score');
+      const scoreHit = !minScore || sAttr === '' || sAttr === null
+        || parseInt(sAttr, 10) >= minScore;
+      const hit = textHit && scoreHit;
       tr.classList.toggle('hidden', !hit);
       if (hit) visible++;
     }
@@ -1219,11 +1231,20 @@
 
   function bindJobsFilter() {
     const input = $('#jobs-quick-filter');
-    if (!input) return;
-    input.addEventListener('input', applyJobsFilter);
-    input.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape') { input.value = ''; applyJobsFilter(); input.blur(); e.stopPropagation(); }
-    });
+    if (input) {
+      input.addEventListener('input', applyJobsFilter);
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') { input.value = ''; applyJobsFilter(); input.blur(); e.stopPropagation(); }
+      });
+    }
+    const sel = $('#jobs-min-score');
+    if (sel) {
+      sel.value = String(getMinScore());
+      sel.addEventListener('change', () => {
+        try { localStorage.setItem('jhh.dashboard.minScore', sel.value); } catch (_) {}
+        applyJobsFilter();
+      });
+    }
   }
 
   function renderJobsTable() {
@@ -1243,7 +1264,7 @@
       return;
     }
     const mode = getSortMode();
-    const sorted = jobs.slice().sort((a, b) => {
+    const presorted = jobs.slice().sort((a, b) => {
       if (mode === 'llm') {
         // Use semantic_score (0-1) scaled to 0-100 for comparison. Jobs
         // without an LLM score sort to the bottom — that's the honest
@@ -1256,10 +1277,28 @@
       }
       return (b.score ?? -1) - (a.score ?? -1);
     });
+    // Collapse per-location duplicates: boards post the same role once per
+    // city. Keep the best-ranked row and badge it with the sibling count;
+    // the duplicates stay in the DB (each is a distinct posting) but stop
+    // flooding the table.
+    const groups = new Map();
+    const sorted = [];
+    for (const j of presorted) {
+      const key = `${(j.title || '').trim().toLowerCase()}|${(j.company || '').trim().toLowerCase()}`;
+      if (groups.has(key)) {
+        groups.get(key).push(j);
+      } else {
+        groups.set(key, []);
+        sorted.push(j);
+      }
+    }
     sorted.forEach((j, i) => {
+      const key = `${(j.title || '').trim().toLowerCase()}|${(j.company || '').trim().toLowerCase()}`;
+      j._siblings = groups.get(key) || [];
       const score = j.score ?? null;
       const llmRow = llmScores[j.id];
-      const tr = el('tr', { class: 'clickable', 'data-job-id': j.id, onclick: (e) => {
+      const tr = el('tr', { class: 'clickable', 'data-job-id': j.id,
+        'data-score': score == null ? '' : String(Math.round(score)), onclick: (e) => {
         // Don't open the detail panel when the user clicks a row button or checkbox.
         if (e.target.closest('.row-action-btn')) return;
         if (e.target.matches('input[type="checkbox"]')) return;
@@ -1269,7 +1308,15 @@
           'data-job-id': j.id,
           onchange: refreshJobsSelectionUI })),
         el('td', { text: String(i + 1) }),
-        el('td', { text: safeText(j.title || '—') }),
+        el('td', {}, [
+          document.createTextNode(safeText(j.title || '—')),
+          ...(j._siblings && j._siblings.length ? [el('span', {
+            class: 'dup-badge',
+            title: 'Same role posted for: ' +
+              j._siblings.map(s => s.location || 'unknown').join(', '),
+            text: `+${j._siblings.length}`,
+          })] : []),
+        ]),
         el('td', { text: safeText(j.company || '—') }),
         el('td', { text: safeText(j.location || (j.is_remote ? 'Remote' : '—')) }),
         el('td', {}, score == null ? document.createTextNode('—')

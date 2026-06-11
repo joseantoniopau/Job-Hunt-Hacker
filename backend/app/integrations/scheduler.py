@@ -245,7 +245,9 @@ def _run_saved_search(saved_search_id: int) -> dict:
         if hasattr(scorer, "score_job"):
             for jid in pres.get("ids") or []:
                 try:
-                    scorer.score_job(int(jid))
+                    # llm_polish=False: a 20-job batch must not make 20
+                    # local-LLM round-trips just to prettify explanations.
+                    scorer.score_job(int(jid), llm_polish=False)
                     scored += 1
                 except Exception as exc:  # noqa: BLE001
                     log.debug("score_job(%s) failed: %s", jid, exc)

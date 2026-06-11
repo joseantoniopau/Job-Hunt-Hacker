@@ -242,67 +242,14 @@ async def autopilot_start(
                                  "detail": f"{type(exc).__name__}: {exc}"})
 
     # 3. Run search using inferred target_titles --------------------------
-    targets: list[str] = []
-    keywords: list[str] = []
-    location_pref = ""
-    try:
-        from ..db import row_to_dict
-        prof_row = get_conn().execute(
-            "SELECT target_titles, target_keywords, preferred_locations, location, "
-            "       remote_preference "
-            "FROM user_profile WHERE id=1"
-        ).fetchone()
-        prof = row_to_dict(prof_row) or {}
-        targets = prof.get("target_titles") or []
-        if isinstance(targets, str):
-            targets = [t.strip() for t in targets.split(",") if t.strip()]
-        keywords = prof.get("target_keywords") or []
-        if isinstance(keywords, str):
-            keywords = [t.strip() for t in keywords.split(",") if t.strip()]
-        location_pref = (prof.get("preferred_locations") or [prof.get("location") or ""])[0] if (prof.get("preferred_locations") or prof.get("location")) else ""
-        remote_pref = (prof.get("remote_preference") or "").strip().lower()
-    except Exception:
-        remote_pref = ""
-
-    # Guard: a search query must be a ROLE, never an employer. Inference has
-    # historically leaked employer names into target_titles ("eBay"), and
-    # searching a job board for an employer name returns that company's
-    # whole catalog — office assistants, full-stack devs — drowning the
-    # user's actual field.
-    try:
-        employer_rows = get_conn().execute(
-            "SELECT DISTINCT lower(trim(employer)) AS e FROM career_claim "
-            "WHERE employer IS NOT NULL AND trim(employer) != ''"
-        ).fetchall()
-        known_employers = {r["e"] for r in employer_rows}
-    except Exception:
-        known_employers = set()
-    dropped_employer_queries = [
-        t for t in (targets or []) if t and t.strip().lower() in known_employers
-    ]
-    if dropped_employer_queries:
-        log.warning("autopilot: dropped employer name(s) from search queries: %s",
-                    dropped_employer_queries)
-    targets = [t for t in (targets or [])
-               if t and t.strip().lower() not in known_employers]
-
-    # Build a multi-query plan: search each of the top 3 titles independently
-    # rather than blasting only the first one. Falling back to a keyword-only
-    # query keeps the run productive even when title inference is sparse.
-    primary_queries: list[str] = [t for t in targets if t][:3]
-    if not primary_queries and keywords:
-        primary_queries = [" ".join(keywords[:3])]
-    if not primary_queries:
-        primary_queries = ["engineer"]
-
-    # The user's remote preference wins: someone in Miami who wants remote
-    # work should search remote, not Miami-local listings. And a remote
-    # search must NOT pass the home city as `location` — boards treat
-    # location as a hard metro filter, which starves the search (Indeed
-    # returns 0 for "threat hunter"+Miami but 10 for "threat hunter"+remote).
-    wants_remote = remote_pref in ("remote", "remote_only", "remote-only") \
-        or not bool(location_pref)
-    search_location = None if wants_remote else (location_pref or None)
+    # All query/remote/location rules live in build_search_plan so this
+    # path can't drift from the Dashboard REFRESH path again.
+    from ..services.search_plan import build_search_plan
+    plan = build_search_plan()
+    primary_queries = plan.queries
+    wants_remote = plan.is_remote
+    search_location = plan.location
+    location_pref = search_location or ""
     raw_sites = [s.strip() for s in (sites or "").split(",") if s.strip()]
 
     # Expand sites the same way /api/search does: jobspy-supported scraper
@@ -387,7 +334,8 @@ async def autopilot_start(
         ).fetchall()
         for row in rows:
             try:
-                score_job(int(row[0]))
+                # Bulk path: template explanations only, no per-job LLM call.
+                score_job(int(row[0]), llm_polish=False)
                 scored += 1
             except Exception:
                 errors += 1

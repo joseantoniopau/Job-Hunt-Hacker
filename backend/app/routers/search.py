@@ -84,7 +84,9 @@ def post_search(request: Request, body: JobSearchRequest) -> dict:
         if hasattr(scorer, "score_job"):
             for jid in persist_res["ids"]:
                 try:
-                    scorer.score_job(jid)
+                    # Bulk path: skip per-job LLM polish so search responds
+                    # in seconds, not minutes.
+                    scorer.score_job(jid, llm_polish=False)
                     scored += 1
                 except Exception as exc:  # noqa: BLE001
                     log.debug("score_job(%s) failed: %s", jid, exc)

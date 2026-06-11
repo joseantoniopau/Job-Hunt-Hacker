@@ -125,8 +125,24 @@ def match_location(job_loc: dict, user_prefs: dict) -> float:
     user_home = user_prefs.get("location") or ""
     user_home_parsed = parse_location(user_home) if user_home else {}
 
+    # The user's country: home location first, else the first preferred
+    # location that parses to a country.
+    user_country = user_home_parsed.get("country")
+    if not user_country:
+        for p in preferred:
+            c = parse_location(p).get("country")
+            if c:
+                user_country = c
+                break
+
     # Remote handling
     if job_loc.get("remote"):
+        # "Remote" pinned to a different country is not a job the user can
+        # take — boards mark Brazil-only contractor roles as remote, and
+        # without this check they score a perfect 1.0.
+        job_country = job_loc.get("country")
+        if job_country and user_country and job_country.upper() != user_country.upper():
+            return 0.25
         if pref in ("remote", "any", ""):
             return 1.0
         if pref == "hybrid":

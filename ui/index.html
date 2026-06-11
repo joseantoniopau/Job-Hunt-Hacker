@@ -11,7 +11,7 @@
     href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Serif:wght@400;600;700&display=swap"
     rel="stylesheet"
   />
-  <link rel="stylesheet" href="/styles.css?v=2026060921" />
+  <link rel="stylesheet" href="/styles.css?v=2026061101" />
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
   <meta http-equiv="Pragma" content="no-cache" />
   <meta http-equiv="Expires" content="0" />
@@ -725,6 +725,13 @@
           <input type="search" id="jobs-quick-filter" class="quick-filter"
             placeholder="FILTER&hellip; (title, company, location)"
             aria-label="Filter results table" autocomplete="off" />
+          <select id="jobs-min-score" class="quick-filter min-score-select"
+            aria-label="Hide jobs below score" title="Hide jobs scoring below this threshold (unscored rows always show)">
+            <option value="0">SCORE: ALL</option>
+            <option value="40">SCORE &ge; 40</option>
+            <option value="60">SCORE &ge; 60</option>
+            <option value="75">SCORE &ge; 75</option>
+          </select>
           <span class="muted small" style="margin-left:auto;">SORT BY:</span>
           <div class="sort-toggle" role="group" aria-label="Sort jobs by">
             <button class="btn btn-secondary small sort-toggle-btn is-active"
@@ -1705,6 +1712,6 @@ Select a resume to preview.
       &middot; <button type="button" id="kbd-hint" class="kbd-hint" title="Show keyboard shortcuts">press <kbd>?</kbd> for shortcuts</button></p>
   </footer>
 
-  <script src="/app.js?v=2026060921" defer></script>
+  <script src="/app.js?v=2026061101" defer></script>
 </body>
 </html>

@@ -415,9 +415,9 @@ def _role_family_penalty(job_title: str, target_titles: list[str]) -> float:
     return 0.45
 
 
-def _explain(job: dict, scores: dict, ats: dict) -> str:
+def _explain(job: dict, scores: dict, ats: dict, llm_polish: bool = True) -> str:
     base = _template_explanation(job, scores, ats)
-    if get_llm is None:
+    if get_llm is None or not llm_polish:
         return base
     try:
         provider = get_llm()
@@ -494,7 +494,11 @@ def _job_record_text(job: dict) -> str:
     return "\n\n".join(p for p in parts if p)
 
 
-def score_job(job_id: int, weights: Optional[dict] = None) -> dict:
+def score_job(job_id: int, weights: Optional[dict] = None,
+              llm_polish: bool = True) -> dict:
+    """Score one job. `llm_polish=False` skips the per-job explanation
+    polish LLM call — bulk paths (saved searches, dashboard refresh) must
+    use it, or scoring 50 new jobs costs 50 local-LLM round-trips."""
     conn = get_conn()
     job_row = conn.execute("SELECT * FROM job_posting WHERE id = ?", (job_id,)).fetchone()
     if not job_row:
@@ -548,8 +552,6 @@ def score_job(job_id: int, weights: Optional[dict] = None) -> dict:
     # If the user's target_titles don't share a discipline family with the
     # job title, multiply the overall score by 0.45.
     penalty = _role_family_penalty(job.get("title") or "", user.get("target_titles") or [])
-    if penalty < 1.0:
-        red_flags_pre: list[str] = []  # captured below; remember we penalized
     overall *= penalty
     scores["overall"] = round(overall, 4)
     scores["role_family_penalty"] = round(penalty, 4)
@@ -566,10 +568,12 @@ def score_job(job_id: int, weights: Optional[dict] = None) -> dict:
         red_flags.append("Salary below your stated minimum.")
     if scores["seniority"] < 0.4:
         red_flags.append(f"Level mismatch ({job_level}).")
+    if scores["location"] <= 0.3:
+        red_flags.append("Location mismatch — likely restricted to another country or region.")
     if scores.get("role_family_penalty", 1.0) < 1.0:
         red_flags.append("Role-family mismatch — job title is outside your target disciplines.")
 
-    explanation = _explain(job, scores, ats)
+    explanation = _explain(job, scores, ats, llm_polish=llm_polish)
 
     strategy = (
         "evidence_first" if scores["overall"] >= 0.7
@@ -613,12 +617,14 @@ def score_job(job_id: int, weights: Optional[dict] = None) -> dict:
     }
 
 
-def score_jobs(job_ids: list[int]) -> dict:
+def score_jobs(job_ids: list[int], llm_polish: bool = False) -> dict:
+    """Bulk scoring defaults to NO per-job LLM polish (template
+    explanations only) so a 50-job refresh doesn't take 10+ minutes."""
     results = []
     errors = []
     for jid in job_ids or []:
         try:
-            results.append(score_job(int(jid)))
+            results.append(score_job(int(jid), llm_polish=llm_polish))
         except Exception as e:
             errors.append({"job_id": jid, "error": str(e)})
     return {"results": results, "errors": errors, "count": len(results)}

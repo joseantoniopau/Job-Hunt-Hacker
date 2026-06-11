@@ -122,38 +122,17 @@ async def refresh_jobs(top_n: int = 25, hours_old: int = 168) -> dict:
     (source, external_id) tuple matches a dismissed job_posting row is
     skipped during insert. Dismissed rows themselves are not re-fetched.
     """
-    from ..db import get_conn, row_to_dict
+    from ..db import get_conn
     from ..services.job_sources import REGISTRY
     from ..services.job_sources.pipeline import search_all, persist
     from ..services.job_sources.base import JobSearchQuery
+    from ..services.search_plan import build_search_plan
 
     conn = get_conn()
-    prof_row = conn.execute(
-        "SELECT target_titles, target_keywords, preferred_locations, location FROM user_profile WHERE id=1"
-    ).fetchone()
-    prof = row_to_dict(prof_row) or {}
-    import json as _json
-    try:
-        targets = _json.loads(prof.get("target_titles") or "[]")
-    except Exception:
-        targets = []
-    try:
-        keywords = _json.loads(prof.get("target_keywords") or "[]")
-    except Exception:
-        keywords = []
-    locations_pref = ""
-    try:
-        prefs = _json.loads(prof.get("preferred_locations") or "[]")
-        if prefs:
-            locations_pref = prefs[0]
-    except Exception:
-        pass
-
-    queries = [t for t in (targets or []) if t][:3]
-    if not queries and keywords:
-        queries = [" ".join(keywords[:3])]
-    if not queries:
-        queries = ["engineer"]
+    # Shared plan: employer-name filtering, remote preference, and the
+    # no-home-city-on-remote rule all live in build_search_plan.
+    plan = build_search_plan()
+    queries = plan.queries
 
     # Pre-build dismissed exclusion set (composite key sources used at persist)
     dismissed_rows = conn.execute(
@@ -178,8 +157,8 @@ async def refresh_jobs(top_n: int = 25, hours_old: int = 168) -> dict:
         sr = search_all(
             JobSearchQuery(
                 query=q,
-                location=locations_pref or None,
-                is_remote=not bool(locations_pref),
+                location=plan.location,
+                is_remote=plan.is_remote,
                 results_per_site=per_q,
                 hours_old=int(hours_old),
             ),
@@ -203,10 +182,28 @@ async def refresh_jobs(top_n: int = 25, hours_old: int = 168) -> dict:
             errors_agg.setdefault(k, str(v))
 
     pr = persist(merged)
+
+    # Score the new rows immediately — without this, refreshed jobs land on
+    # the dashboard unscored and sort to the bottom regardless of fit.
+    scored = 0
+    try:
+        from ..matching import scorer as _scorer
+        if hasattr(_scorer, "score_job"):
+            for jid in pr.get("ids") or []:
+                try:
+                    # No per-job LLM polish in bulk — keeps REFRESH fast.
+                    _scorer.score_job(int(jid), llm_polish=False)
+                    scored += 1
+                except Exception as exc:  # noqa: BLE001
+                    log.debug("refresh score_job(%s) failed: %s", jid, exc)
+    except Exception:
+        pass
+
     return {"ok": True, "data": {
         "queries": queries,
         "discovered": len(merged),
         "inserted": int(pr.get("inserted", 0)),
+        "scored": scored,
         "excluded_dismissed": excluded,
         "per_source": per_source_agg,
         "errors": errors_agg,
