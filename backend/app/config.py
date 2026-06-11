@@ -97,6 +97,12 @@ class Settings:
     serpapi_key: str = field(default_factory=lambda: _env("SERPAPI_API_KEY"))
     searchapi_key: str = field(default_factory=lambda: _env("SEARCHAPI_API_KEY"))
     github_token: str = field(default_factory=lambda: _env("GITHUB_TOKEN"))
+    # Optional outbound proxy for job scrapers (jobspy + httpx adapters).
+    scraper_proxy: str = field(default_factory=lambda: _env("JHH_SCRAPER_PROXY"))
+    # Circuit breaker: after this many consecutive adapter failures, skip the
+    # adapter for `adapter_cooldown_s` seconds before trying again.
+    adapter_breaker_threshold: int = field(default_factory=lambda: _int("JHH_ADAPTER_BREAKER_THRESHOLD", 3))
+    adapter_cooldown_s: int = field(default_factory=lambda: _int("JHH_ADAPTER_COOLDOWN_S", 3600))
 
     # gmail/calendar
     google_client_id: str = field(default_factory=lambda: _env("GOOGLE_CLIENT_ID"))

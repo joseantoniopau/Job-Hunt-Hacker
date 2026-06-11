@@ -590,6 +590,9 @@ def _init_schema(conn: sqlite3.Connection) -> None:
     _ensure_column(conn, "email_event", "status_updated_at", "REAL")
     _ensure_column(conn, "saved_search", "last_error", "TEXT")
     _ensure_column(conn, "saved_search", "last_error_ts", "REAL")
+    # per-adapter circuit breaker (services/job_sources/pipeline.py)
+    _ensure_column(conn, "source_state", "consecutive_failures", "INTEGER DEFAULT 0")
+    _ensure_column(conn, "source_state", "disabled_until", "REAL")
     # application deadlines (PATCH /api/applications/{id}) + one-shot reminder stamp
     _ensure_column(conn, "application", "deadline_at", "REAL")
     _ensure_column(conn, "application", "deadline_source", "TEXT")

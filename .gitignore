@@ -52,3 +52,4 @@ data/jhh.db.bak
 # claude code worktrees + task state — local only
 .claude/
 data/snapshots/
+data/digests/

@@ -87,19 +87,33 @@ class JobSpyAdapter(JobSourceAdapter):
         if not sites:
             return []
 
+        # Optional outbound proxy (JHH_SCRAPER_PROXY) — scrapers hit
+        # rate-limit-happy boards; a residential/rotating proxy lets users
+        # who own one avoid IP blocks. jobspy accepts a list of proxies.
+        proxies = None
         try:
-            df = scrape_jobs(
-                site_name=sites,
-                search_term=q.query or "",
-                location=q.location or "",
-                distance=q.distance,
-                is_remote=bool(q.is_remote),
-                job_type=q.employment_type,
-                results_wanted=int(q.results_per_site or 25),
-                country_indeed=q.country or "usa",
-                hours_old=q.hours_old,
-                description_format="markdown",
-            )
+            from ...config import settings
+            if settings.scraper_proxy:
+                proxies = [settings.scraper_proxy]
+        except Exception:
+            proxies = None
+
+        kwargs = dict(
+            site_name=sites,
+            search_term=q.query or "",
+            location=q.location or "",
+            distance=q.distance,
+            is_remote=bool(q.is_remote),
+            job_type=q.employment_type,
+            results_wanted=int(q.results_per_site or 25),
+            country_indeed=q.country or "usa",
+            hours_old=q.hours_old,
+            description_format="markdown",
+        )
+        if proxies:
+            kwargs["proxies"] = proxies
+        try:
+            df = scrape_jobs(**kwargs)
         except Exception as exc:  # noqa: BLE001
             log.warning("scrape_jobs failed: %s", exc)
             return []

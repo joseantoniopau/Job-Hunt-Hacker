@@ -66,17 +66,63 @@ def _is_source_disabled(source: str) -> bool:
 
 
 def _mark_source(name: str, error: str | None) -> None:
+    """Record a run outcome and advance the circuit breaker.
+
+    Success (error is None) resets consecutive_failures + clears any
+    cooldown. Failure increments the counter and, once it reaches the
+    configured threshold, sets disabled_until = now + cooldown so the
+    adapter is skipped (without being permanently disabled) until it
+    cools off. `enabled` is left untouched — the breaker is a separate,
+    self-healing gate from the user's manual enable/disable toggle.
+    """
+    from ...config import settings
+    now = time.time()
     try:
         with tx() as conn:
+            row = conn.execute(
+                "SELECT consecutive_failures FROM source_state WHERE source = ?",
+                (name,),
+            ).fetchone()
+            prior = int(row["consecutive_failures"] or 0) if row else 0
+            if error is None:
+                conn.execute(
+                    "INSERT INTO source_state (source, enabled, last_run_at, last_error, "
+                    "consecutive_failures, disabled_until) VALUES (?, 1, ?, NULL, 0, NULL) "
+                    "ON CONFLICT(source) DO UPDATE SET last_run_at=excluded.last_run_at, "
+                    "last_error=NULL, consecutive_failures=0, disabled_until=NULL",
+                    (name, now),
+                )
+                return
+            failures = prior + 1
+            threshold = max(1, int(settings.adapter_breaker_threshold))
+            disabled_until = now + max(1, int(settings.adapter_cooldown_s)) if failures >= threshold else None
             conn.execute(
-                "INSERT INTO source_state (source, enabled, last_run_at, last_error) "
-                "VALUES (?, 1, ?, ?) "
+                "INSERT INTO source_state (source, enabled, last_run_at, last_error, "
+                "consecutive_failures, disabled_until) VALUES (?, 1, ?, ?, ?, ?) "
                 "ON CONFLICT(source) DO UPDATE SET last_run_at=excluded.last_run_at, "
-                "last_error=excluded.last_error",
-                (name, time.time(), error),
+                "last_error=excluded.last_error, consecutive_failures=excluded.consecutive_failures, "
+                "disabled_until=excluded.disabled_until",
+                (name, now, error, failures, disabled_until),
             )
+            if disabled_until is not None:
+                log.warning("circuit breaker OPEN for adapter %s after %d consecutive "
+                            "failures — cooling off %ds", name, failures, int(settings.adapter_cooldown_s))
     except Exception as exc:  # noqa: BLE001
         log.debug("source_state update failed for %s: %s", name, exc)
+
+
+def _circuit_open_until(name: str) -> float | None:
+    """Return the cooldown expiry if the adapter's breaker is open, else None."""
+    try:
+        row = get_conn().execute(
+            "SELECT disabled_until FROM source_state WHERE source = ?", (name,)
+        ).fetchone()
+    except Exception:
+        return None
+    if not row or row["disabled_until"] is None:
+        return None
+    until = float(row["disabled_until"])
+    return until if until > time.time() else None
 
 
 def search_all(q: JobSearchQuery, sites: list[str]) -> dict:
@@ -100,6 +146,17 @@ def search_all(q: JobSearchQuery, sites: list[str]) -> dict:
     enabled = [n for n in requested if not _is_source_disabled(n)]
     for n in set(requested) - set(enabled):
         errors[n] = "disabled"
+
+    # Circuit breaker: skip adapters that have tripped and are still cooling
+    # off. They re-enter the pool automatically once disabled_until passes.
+    ready = []
+    for n in enabled:
+        until = _circuit_open_until(n)
+        if until is not None:
+            errors[n] = f"circuit_open:{int(until - time.time())}s"
+        else:
+            ready.append(n)
+    enabled = ready
 
     with cf.ThreadPoolExecutor(max_workers=_MAX_WORKERS) as pool:
         futures = {

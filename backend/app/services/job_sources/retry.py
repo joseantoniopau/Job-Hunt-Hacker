@@ -53,11 +53,20 @@ def wrap_with_retry(
         log.debug("tenacity unavailable; retry disabled for %s", getattr(func, "__name__", "fn"))
         return func
 
+    fn_name = getattr(func, "__name__", "fn")
+
+    def _before_sleep(retry_state: Any) -> None:
+        exc = retry_state.outcome.exception() if retry_state.outcome else None
+        log.warning("retry %s attempt %d after transient error: %s",
+                    fn_name, retry_state.attempt_number,
+                    f"{type(exc).__name__}: {exc}" if exc else "unknown")
+
     retry_if = tenacity.retry_if_exception(_is_retryable)
     decorator = tenacity.retry(
         retry=retry_if,
         stop=tenacity.stop_after_attempt(int(max_attempts)),
         wait=tenacity.wait_exponential(multiplier=1, min=float(min_wait), max=float(max_wait)),
+        before_sleep=_before_sleep,
         reraise=True,
     )
     return decorator(func)
