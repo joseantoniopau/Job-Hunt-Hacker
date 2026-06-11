@@ -4,93 +4,129 @@
     <meta charset="utf-8" />
     <title>Job Hunt Hacker</title>
     <style>
-      :root { color-scheme: light dark; }
       body {
-        font-family: -apple-system, Segoe UI, Roboto, sans-serif;
-        width: 320px;
+        font-family: "SF Mono", Menlo, Consolas, "Courier New", monospace;
+        width: 340px;
         margin: 0;
-        padding: 14px 16px 16px;
-        font-size: 13px;
+        padding: 12px;
+        font-size: 12px;
+        background: #fff;
+        color: #000;
       }
       h1 {
-        font-size: 14px;
+        font-size: 13px;
         margin: 0 0 10px;
-        letter-spacing: 0.04em;
+        letter-spacing: 0.08em;
         text-transform: uppercase;
+        border: 2px solid #000;
+        background: #000;
+        color: #fff;
+        padding: 7px 9px;
+      }
+      .box {
+        border: 2px solid #000;
+        padding: 8px 9px;
+        margin-bottom: 10px;
       }
       .label {
-        font-size: 11px;
+        font-size: 10px;
         text-transform: uppercase;
-        color: #666;
-        margin-top: 10px;
+        letter-spacing: 0.06em;
+        font-weight: 700;
         margin-bottom: 4px;
       }
-      .url {
+      .mono {
         word-break: break-all;
-        background: rgba(127, 127, 127, 0.12);
-        padding: 6px 8px;
-        border-radius: 4px;
-        font-family: SF Mono, Menlo, monospace;
-        font-size: 11px;
-        max-height: 64px;
+        font-size: 10px;
+        max-height: 48px;
         overflow: auto;
       }
+      #status-line { font-weight: 700; }
+      #status-line.ok::before { content: "● "; }
+      #status-line.err::before { content: "○ "; }
       input[type="text"] {
         width: 100%;
         box-sizing: border-box;
-        padding: 6px 8px;
-        font-family: SF Mono, Menlo, monospace;
+        padding: 5px 7px;
+        font-family: inherit;
         font-size: 11px;
-        border: 1px solid #999;
-        border-radius: 4px;
-        background: transparent;
-        color: inherit;
+        border: 2px solid #000;
+        border-radius: 0;
+        background: #fff;
+        color: #000;
       }
       button {
-        margin-top: 12px;
         width: 100%;
-        padding: 9px 12px;
-        font-size: 12px;
-        font-weight: 600;
+        margin-top: 6px;
+        padding: 8px 10px;
+        font-family: inherit;
+        font-size: 11px;
+        font-weight: 700;
         letter-spacing: 0.06em;
         text-transform: uppercase;
-        background: #111;
+        background: #000;
         color: #fff;
-        border: 0;
-        border-radius: 4px;
+        border: 2px solid #000;
+        border-radius: 0;
         cursor: pointer;
       }
-      button[disabled] { opacity: 0.55; cursor: progress; }
-      button.secondary {
-        background: transparent;
-        color: inherit;
-        border: 1px solid #888;
+      button.secondary { background: #fff; color: #000; }
+      button[disabled] { opacity: 0.45; cursor: progress; }
+      a#open-app {
+        display: block;
         margin-top: 6px;
+        padding: 8px 10px;
+        border: 2px solid #000;
+        text-align: center;
+        text-transform: uppercase;
+        font-weight: 700;
+        letter-spacing: 0.06em;
+        color: #000;
+        text-decoration: none;
+        box-sizing: border-box;
       }
       #toast {
         margin-top: 10px;
-        padding: 8px 10px;
-        border-radius: 4px;
-        font-size: 12px;
+        padding: 7px 9px;
+        border: 2px solid #000;
+        font-size: 11px;
         display: none;
       }
-      #toast.ok { background: #d6f5d6; color: #1b5e20; display: block; }
-      #toast.err { background: #fde2e1; color: #8a1c1c; display: block; }
+      #toast.ok, #toast.err { display: block; }
+      #toast.err { background: #000; color: #fff; }
+      .note { font-size: 10px; color: #333; margin-top: 8px; }
     </style>
   </head>
   <body>
-    <h1>Save to Job Hunt Hacker</h1>
+    <h1>Job Hunt Hacker</h1>
 
-    <div class="label">Current URL</div>
-    <div id="current-url" class="url">(loading)</div>
+    <div class="box">
+      <div class="label">Connection</div>
+      <div id="status-line" class="err">checking…</div>
+      <div id="status-detail" class="mono"></div>
+    </div>
 
-    <div class="label">Local server</div>
-    <input id="server-url" type="text" value="http://127.0.0.1:8731" />
+    <div class="box">
+      <div class="label">Current page</div>
+      <div id="current-url" class="mono">(loading)</div>
+    </div>
 
-    <button id="save-btn">Save to Job Hunt Hacker</button>
-    <button id="save-settings" class="secondary">Save server URL</button>
+    <button id="autofill-btn">Scan &amp; autofill this page</button>
+    <button id="save-btn" class="secondary">Save page to vault</button>
+    <a id="open-app" href="http://127.0.0.1:8731" target="_blank" rel="noopener">Open the app</a>
+
+    <div class="box" style="margin-top:10px;">
+      <div class="label">Local server</div>
+      <input id="server-url" type="text" value="http://127.0.0.1:8731" />
+      <button id="save-settings" class="secondary">Save server URL</button>
+    </div>
 
     <div id="toast"></div>
+
+    <div class="note">
+      Autofill never submits anything — it only fills fields you choose,
+      from your local vault. Review everything before you hit submit.
+    </div>
 
     <script src="popup.js"></script>
   </body>

@@ -33,7 +33,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Query, UploadFile, File
+from fastapi import APIRouter, Form, HTTPException, Query, UploadFile, File
 from fastapi.responses import Response
 from pydantic import BaseModel
 
@@ -562,6 +562,446 @@ async def import_all(file: UploadFile = File(...)) -> dict:
     except Exception as exc:
         raise HTTPException(400, f"invalid JSON: {exc}")
     return _import_bundle(bundle)
+
+
+# ---------- TRACKER IMPORT (Huntr / Teal / generic CSV) ----------
+
+_TRACKER_MAX_BYTES = 5 * 1024 * 1024  # 5 MB
+_TRACKER_ERROR_LIMIT = 20
+# Accept "generic" as a friendly alias for "csv".
+_TRACKER_FORMAT_ALIASES = {"huntr": "huntr", "teal": "teal", "csv": "csv",
+                           "generic": "csv"}
+
+# Canonical row fields every format funnels into:
+#   title, company, url, status, applied_date, saved_date, location,
+#   salary (free text), salary_min, salary_max, notes
+#
+# Header aliases are matched on a normalized form (lowercase, BOM stripped,
+# runs of whitespace/underscores collapsed to a single space) so e.g.
+# "Applied_Date", "applied date" and "Applied Date" all hit the same key.
+
+# Generic CSV contract: title,company,url,status,applied_date,location,salary,notes
+_GENERIC_ALIASES: dict[str, str] = {
+    "title": "title",
+    "company": "company",
+    "url": "url",
+    "status": "status",
+    "applied date": "applied_date",
+    "location": "location",
+    "salary": "salary",
+    "notes": "notes",
+}
+
+# Huntr board export. Their CSV typically carries Title / Company / Location /
+# Salary / Url / List (the kanban column the card sits in) / Date Added /
+# Description; older and newer exports vary, so aliases are generous and any
+# missing column simply yields an empty field.
+_HUNTR_ALIASES: dict[str, str] = {
+    "title": "title", "job title": "title", "position": "title",
+    "company": "company", "company name": "company",
+    "url": "url", "job post url": "url", "post url": "url",
+    "job url": "url", "link": "url",
+    "list": "status", "list name": "status", "status": "status",
+    "stage": "status",
+    "date added": "saved_date", "created at": "saved_date",
+    "applied date": "applied_date", "date applied": "applied_date",
+    "applied at": "applied_date", "application date": "applied_date",
+    "location": "location",
+    "salary": "salary",
+    "description": "notes", "notes": "notes",
+}
+
+# Teal job tracker export. Typically Company / Role (or Position) / Status /
+# URL / Location / Salary (or Min Salary + Max Salary) / Date Saved /
+# Date Applied / Notes / Excitement.
+_TEAL_ALIASES: dict[str, str] = {
+    "role": "title", "position": "title", "job title": "title",
+    "title": "title",
+    "company": "company", "company name": "company",
+    "url": "url", "job post url": "url", "job posting url": "url",
+    "job url": "url", "link": "url",
+    "status": "status", "stage": "status",
+    "date applied": "applied_date", "applied date": "applied_date",
+    "date saved": "saved_date",
+    "location": "location",
+    "salary": "salary", "compensation": "salary", "pay": "salary",
+    "min salary": "salary_min", "salary min": "salary_min",
+    "max salary": "salary_max", "salary max": "salary_max",
+    "notes": "notes",
+}
+
+_TRACKER_ALIAS_MAPS: dict[str, dict[str, str]] = {
+    "huntr": {**_GENERIC_ALIASES, **_HUNTR_ALIASES},
+    "teal": {**_GENERIC_ALIASES, **_TEAL_ALIASES},
+    "csv": dict(_GENERIC_ALIASES),
+}
+
+# Foreign stage/list names -> this app's pipeline statuses
+# (saved/prepared/applied/replied/interview/offer/rejected). Lookup is on the
+# normalized form; unknown stages fall back to a substring heuristic and
+# finally to "saved" so an exotic kanban column never kills the row.
+_STAGE_MAP: dict[str, str] = {
+    # saved
+    "wishlist": "saved", "bookmarked": "saved", "saved": "saved",
+    "interested": "saved", "to apply": "saved", "backlog": "saved",
+    # prepared
+    "applying": "prepared", "preparing": "prepared", "prepared": "prepared",
+    "drafting": "prepared", "in progress": "prepared",
+    # applied
+    "applied": "applied", "application submitted": "applied",
+    "submitted": "applied", "pending": "applied",
+    # replied
+    "replied": "replied", "contacted": "replied", "in contact": "replied",
+    "follow up": "replied", "followed up": "replied", "responded": "replied",
+    # interview
+    "phone screen": "interview", "screen": "interview",
+    "screening": "interview", "interview": "interview",
+    "interviewing": "interview", "interviews": "interview",
+    "on site": "interview", "onsite": "interview",
+    "technical interview": "interview", "final round": "interview",
+    # offer
+    "offer": "offer", "offers": "offer", "offer received": "offer",
+    "negotiating": "offer", "negotiation": "offer", "accepted": "offer",
+    "hired": "offer",
+    # rejected
+    "rejected": "rejected", "rejection": "rejected",
+    "not selected": "rejected", "declined": "rejected",
+    "no response": "rejected", "closed": "rejected",
+    "withdrawn": "rejected", "archived": "rejected", "ghosted": "rejected",
+}
+
+# A row whose mapped status is in this set represents a job the user actually
+# applied to -> it gets an application row, not just a job_posting.
+_APPLIED_STATUSES = {"applied", "replied", "interview", "offer", "rejected"}
+
+_TRACKER_DATE_FORMATS = (
+    "%Y-%m-%d", "%Y/%m/%d", "%m/%d/%Y", "%m/%d/%y", "%m-%d-%Y",
+    "%b %d, %Y", "%B %d, %Y", "%d %b %Y", "%d %B %Y",
+    "%Y-%m-%d %H:%M:%S", "%m/%d/%Y %H:%M",
+)
+
+_SALARY_NUM_RE = re.compile(r"(\d[\d,]*(?:\.\d+)?)\s*([kK])?")
+
+
+def _norm_header(h: str) -> str:
+    """Normalize a CSV header/stage token: strip BOM + whitespace, lowercase,
+    collapse runs of whitespace/underscores/dashes to single spaces."""
+    return re.sub(r"[\s_\-]+", " ", (h or "").replace("\ufeff", "").strip().lower())
+
+
+def _map_stage(raw_stage: str) -> str:
+    """Translate a foreign tracker stage into one of this app's pipeline
+    statuses. Unknown stages degrade to 'saved' (job imported, no
+    application) rather than erroring."""
+    s = _norm_header(raw_stage)
+    if not s:
+        return "saved"
+    if s in _STAGE_MAP:
+        return _STAGE_MAP[s]
+    # substring heuristics for custom kanban column names
+    if "reject" in s or "declin" in s or "no longer" in s:
+        return "rejected"
+    if "offer" in s or "negotiat" in s or "accept" in s or "hired" in s:
+        return "offer"
+    if "interview" in s or "screen" in s or "onsite" in s or "on site" in s:
+        return "interview"
+    if "repl" in s or "contact" in s or "follow" in s or "respon" in s:
+        return "replied"
+    if "applied" in s or "submit" in s:
+        return "applied"
+    if "applying" in s or "prepar" in s or "draft" in s or "progress" in s:
+        return "prepared"
+    return "saved"
+
+
+def _parse_tracker_date(value: str) -> float | None:
+    """Parse a tracker export date into an epoch float. Tries ISO-8601 first
+    (with Z tolerance), then a battery of common US/word formats. Returns
+    None when unparseable — callers fall back to import time."""
+    s = (value or "").strip()
+    if not s:
+        return None
+    iso = s[:-1] + "+00:00" if s.endswith("Z") else s
+    try:
+        return datetime.fromisoformat(iso).timestamp()
+    except ValueError:
+        pass
+    for fmt in _TRACKER_DATE_FORMATS:
+        try:
+            return datetime.strptime(s, fmt).timestamp()
+        except ValueError:
+            continue
+    return None
+
+
+def _parse_salary_text(value: str) -> tuple[int | None, int | None]:
+    """Pull (salary_min, salary_max) out of free text like
+    "$120,000 - $150,000/yr" or "120k–150k". Figures under 1000 after
+    k-expansion are ignored (hourly rates / noise). Single figure ->
+    (n, n); nothing usable -> (None, None)."""
+    if not value:
+        return None, None
+    nums: list[int] = []
+    for digits, k in _SALARY_NUM_RE.findall(str(value)):
+        try:
+            n = float(digits.replace(",", ""))
+        except ValueError:
+            continue
+        if k:
+            n *= 1000
+        if n >= 1000:
+            nums.append(int(n))
+    if not nums:
+        return None, None
+    return min(nums), max(nums)
+
+
+def _parse_salary_single(value: str) -> int | None:
+    lo, _hi = _parse_salary_text(value)
+    return lo
+
+
+def _extract_row_fields(row: dict, header_map: dict[str, str]) -> dict[str, str]:
+    """Project a raw DictReader row onto the canonical field names. When two
+    source columns alias the same field, the first non-empty value wins."""
+    fields: dict[str, str] = {}
+    for raw_header, field in header_map.items():
+        if fields.get(field):
+            continue
+        v = row.get(raw_header)
+        if v is None:
+            continue
+        v = str(v).strip()
+        if v:
+            fields[field] = v
+    return fields
+
+
+def _local_dedup_insert_job(source: str, f: dict[str, str],
+                            salary_min: int | None, salary_max: int | None,
+                            posted_at: str) -> tuple[bool, int | None]:
+    """Fallback persistence when services.job_sources.pipeline is not
+    importable: dedup by lower(title)+lower(company) across all sources,
+    then plain INSERT. Returns (inserted, job_id)."""
+    title = f.get("title", "")
+    company = f.get("company", "")
+    with tx() as conn:
+        dup = conn.execute(
+            "SELECT id FROM job_posting "
+            "WHERE lower(trim(title)) = ? AND lower(trim(company)) = ?",
+            (title.strip().lower(), company.strip().lower()),
+        ).fetchone()
+        if dup:
+            return False, None
+        cur = conn.execute(
+            "INSERT INTO job_posting (external_id, source, title, company, "
+            "location, salary_min, salary_max, apply_url, posted_at, "
+            "discovered_at, raw_json, status) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'new')",
+            (f.get("url") or None, source, title, company,
+             f.get("location", ""), salary_min, salary_max,
+             f.get("url", ""), posted_at, time.time(),
+             json.dumps({"imported_fields": f}, default=str)),
+        )
+        return True, int(cur.lastrowid)
+
+
+def _persist_imported_job(fmt: str, f: dict[str, str]) -> tuple[bool, int | None]:
+    """Insert one imported row as a job_posting under source='import:<fmt>'.
+
+    Reuses services.job_sources.pipeline.persist when importable so imports
+    get the exact same dedup the live adapters get: UNIQUE(source,
+    external_id), UNIQUE(hash) and the 14-day cross-source
+    title+company+(url-or-location) probe. Falls back to a local
+    title+company dedup if the pipeline module is unavailable.
+
+    Returns (inserted, job_id); (False, None) means duplicate-skipped.
+    """
+    source = f"import:{fmt}"
+    salary_min = _parse_salary_single(f.get("salary_min", ""))
+    salary_max = _parse_salary_single(f.get("salary_max", ""))
+    if salary_min is None and salary_max is None:
+        salary_min, salary_max = _parse_salary_text(f.get("salary", ""))
+    # posted_at: the best date we have for "when this job entered the funnel"
+    posted_ts = (_parse_tracker_date(f.get("applied_date", ""))
+                 or _parse_tracker_date(f.get("saved_date", "")))
+    posted_at = (datetime.fromtimestamp(posted_ts, tz=timezone.utc)
+                 .strftime("%Y-%m-%d") if posted_ts else "")
+    try:
+        from ..services.job_sources import pipeline as job_pipeline
+        from ..services.job_sources.base import JobRecord
+    except ImportError:
+        return _local_dedup_insert_job(source, f, salary_min, salary_max,
+                                       posted_at)
+    rec = JobRecord(
+        source=source,
+        title=f.get("title", ""),
+        company=f.get("company", ""),
+        location=f.get("location", ""),
+        salary_min=salary_min,
+        salary_max=salary_max,
+        description=f.get("notes", ""),
+        apply_url=f.get("url", ""),
+        posted_at=posted_at,
+        # URL doubles as a stable external id so re-importing the same
+        # export hits UNIQUE(source, external_id) even if other fields drift.
+        external_id=f.get("url", ""),
+        raw={"import_format": fmt, "imported_fields": f},
+    )
+    res = job_pipeline.persist([rec])
+    ids = res.get("ids") or []
+    if ids:
+        return True, int(ids[0])
+    return False, None
+
+
+def _create_imported_application(job_id: int, status: str, f: dict[str, str],
+                                 fmt: str) -> int:
+    """Insert the application row for an imported job. applied_at comes from
+    the export's applied_date when parseable, else import time."""
+    now = time.time()
+    applied_at = _parse_tracker_date(f.get("applied_date", "")) or now
+    with tx() as conn:
+        cur = conn.execute(
+            "INSERT INTO application (job_id, status, mode, notes, applied_at, "
+            "application_url, audit_json) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (int(job_id), status, "import", f.get("notes", ""), applied_at,
+             f.get("url") or None,
+             json.dumps([{"ts": now, "action": "imported",
+                          "import_format": fmt,
+                          "original_status": f.get("status", ""),
+                          "status": status}])),
+        )
+        return int(cur.lastrowid)
+
+
+@router.post("/import-tracker")
+async def import_tracker(
+    file: UploadFile = File(...),
+    format: str = Form(...),
+) -> dict:
+    """Import jobs + applications from another tracker's CSV export.
+
+    Request (multipart/form-data):
+      * file   — the CSV export (<5 MB, utf-8 / utf-8-sig)
+      * format — "huntr" | "teal" | "csv" ("generic" accepted as alias of csv)
+
+    Generic CSV columns: title,company,url,status,applied_date,location,
+    salary,notes (title required per row; everything else optional). Huntr
+    and Teal headers are mapped via per-format aliases and missing columns
+    are tolerated.
+
+    Per row: a job_posting is inserted under source='import:<format>'
+    (deduped via the shared job_sources persist pipeline — UNIQUE(source,
+    external_id), content hash and cross-source title+company probe). When
+    the row's stage maps to a status that implies the user applied
+    (applied/replied/interview/offer/rejected) an application row is created
+    too, with applied_at taken from the export when present.
+
+    Response: {"ok": true, "data": {"format", "total_rows", "imported_jobs",
+    "imported_applications", "skipped_duplicates", "errors" (first 20),
+    "error_count"}}.
+    """
+    import csv as _csv
+    import io as _io
+
+    fmt = _TRACKER_FORMAT_ALIASES.get((format or "").strip().lower())
+    if not fmt:
+        raise HTTPException(
+            400,
+            f"unknown format: {format!r}; valid: ['csv', 'huntr', 'teal']",
+        )
+    try:
+        raw = await file.read()
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(400, f"could not read upload: {exc}")
+    if not raw:
+        raise HTTPException(400, "empty upload")
+    if len(raw) > _TRACKER_MAX_BYTES:
+        raise HTTPException(
+            413,
+            f"file too large: {len(raw)} bytes (max {_TRACKER_MAX_BYTES})",
+        )
+    # utf-8-sig strips a BOM if present; errors=replace keeps a stray
+    # non-utf8 byte from killing the whole import.
+    text = raw.decode("utf-8-sig", errors="replace")
+
+    reader = _csv.DictReader(_io.StringIO(text))
+    if not reader.fieldnames:
+        raise HTTPException(400, "CSV has no header row")
+
+    aliases = _TRACKER_ALIAS_MAPS[fmt]
+    # raw header -> canonical field, preserving CSV column order
+    header_map: dict[str, str] = {}
+    for h in reader.fieldnames:
+        if h is None:
+            continue
+        field = aliases.get(_norm_header(h))
+        if field:
+            header_map[h] = field
+    if "title" not in header_map.values():
+        raise HTTPException(
+            400,
+            f"no job-title column found for format={fmt}; "
+            f"headers seen: {[h for h in reader.fieldnames if h]}",
+        )
+
+    imported_jobs = 0
+    imported_applications = 0
+    skipped_duplicates = 0
+    errors: list[str] = []
+    error_count = 0
+    total_rows = 0
+
+    def _record_error(msg: str) -> None:
+        nonlocal error_count
+        error_count += 1
+        if len(errors) < _TRACKER_ERROR_LIMIT:
+            errors.append(msg)
+
+    rows_iter = enumerate(reader, start=2)  # data starts on line 2
+    while True:
+        try:
+            line_no, row = next(rows_iter)
+        except StopIteration:
+            break
+        except _csv.Error as exc:
+            _record_error(f"csv parse error: {exc}")
+            continue
+        total_rows += 1
+        try:
+            f = _extract_row_fields(row, header_map)
+            if not f.get("title"):
+                _record_error(f"row {line_no}: missing title")
+                continue
+            status = _map_stage(f.get("status", ""))
+            inserted, job_id = _persist_imported_job(fmt, f)
+            if not inserted:
+                skipped_duplicates += 1
+                continue
+            imported_jobs += 1
+            if status in _APPLIED_STATUSES and job_id is not None:
+                _create_imported_application(job_id, status, f, fmt)
+                imported_applications += 1
+        except Exception as exc:  # noqa: BLE001
+            _record_error(f"row {line_no}: {exc}")
+
+    audit("data_import_tracker", "data", None,
+          format=fmt, total_rows=total_rows, imported_jobs=imported_jobs,
+          imported_applications=imported_applications,
+          skipped_duplicates=skipped_duplicates, error_count=error_count)
+    return {
+        "ok": True,
+        "data": {
+            "format": fmt,
+            "total_rows": total_rows,
+            "imported_jobs": imported_jobs,
+            "imported_applications": imported_applications,
+            "skipped_duplicates": skipped_duplicates,
+            "errors": errors,
+            "error_count": error_count,
+        },
+    }
 
 
 # ---------- SNAPSHOTS ----------

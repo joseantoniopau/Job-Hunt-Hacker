@@ -1,12 +1,17 @@
-"""GET/PATCH/DELETE /api/jobs ..."""
+"""GET/PATCH/DELETE /api/jobs ... plus JD change tracking (snapshots)."""
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
+import re
+import time
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
+from ..db import audit, get_conn, tx
 from ..services.job_sources.pipeline import (
     get_job,
     list_jobs,
@@ -24,6 +29,187 @@ class StatusUpdate(BaseModel):
 
 class RescoreRequest(BaseModel):
     job_ids: list[int]
+
+
+class SnapshotCheckBody(BaseModel):
+    """Optional body for POST /api/jobs/{id}/snapshot-check.
+
+    description: when provided, it is treated as the freshly-fetched JD text —
+    compared against the latest snapshot baseline and, if it changed, recorded
+    as a new snapshot AND written back to job_posting.description. When omitted
+    the check compares the job row's CURRENT description against the latest
+    snapshot (drift detection after some other code updated the row).
+    """
+    description: Optional[str] = None
+
+
+# --------- JD change tracking helpers ---------
+
+_WORD_RE = re.compile(r"[A-Za-z0-9_+#./-]+")
+
+
+def _content_hash(text: str | None) -> str:
+    """Stable sha256 of the description, whitespace-trimmed."""
+    return hashlib.sha256((text or "").strip().encode("utf-8")).hexdigest()
+
+
+def _keywords(text: str | None) -> set[str]:
+    """Lowercased words longer than 4 chars — the 'keyword' universe for the
+    naive set-diff in change summaries."""
+    return {w.lower() for w in _WORD_RE.findall(text or "") if len(w) > 4}
+
+
+def _diff_summary(old: str | None, new: str | None) -> dict:
+    """Naive diff stats between two descriptions: char-length delta plus a
+    set diff of words >4 chars (capped at 50 each side)."""
+    old = old or ""
+    new = new or ""
+    old_kw = _keywords(old)
+    new_kw = _keywords(new)
+    return {
+        "chars_added": max(0, len(new) - len(old)),
+        "chars_removed": max(0, len(old) - len(new)),
+        "old_len": len(old),
+        "new_len": len(new),
+        "added_keywords": sorted(new_kw - old_kw)[:50],
+        "removed_keywords": sorted(old_kw - new_kw)[:50],
+    }
+
+
+def snapshot_job_if_changed(job_id: int, new_description: str | None = None) -> dict:
+    """Record a job_posting_snapshot row when the job's description changed.
+
+    Behavior:
+      * First call for a job records a baseline snapshot of the current
+        description (change_summary = {"initial": true}) and reports
+        changed=False — drift can only be measured against a baseline.
+      * new_description=None  -> compare the job row's current description
+        hash against the latest snapshot's content_hash (snapshot-check mode).
+      * new_description given -> compare it against the latest snapshot; on
+        change, record the snapshot and update job_posting.description so the
+        row stays current. This is the hook for refresh/persist flows that
+        re-fetch a JD for an already-known job.
+
+    Returns {job_id, changed, baseline_created, snapshot_id, change_summary,
+    content_hash}. Raises LookupError when the job doesn't exist.
+    """
+    conn = get_conn()
+    row = conn.execute(
+        "SELECT id, description FROM job_posting WHERE id = ?", (int(job_id),)
+    ).fetchone()
+    if not row:
+        raise LookupError(f"job {job_id} not found")
+    current_desc = row["description"] or ""
+    now = time.time()
+    out: dict = {
+        "job_id": int(job_id),
+        "changed": False,
+        "baseline_created": False,
+        "snapshot_id": None,
+        "change_summary": None,
+    }
+    summary: dict | None = None
+    with tx() as c:
+        latest = c.execute(
+            "SELECT id, content_hash, description FROM job_posting_snapshot "
+            "WHERE job_id = ? ORDER BY captured_at DESC, id DESC LIMIT 1",
+            (int(job_id),),
+        ).fetchone()
+        if latest is None:
+            cur = c.execute(
+                "INSERT INTO job_posting_snapshot "
+                "(job_id, content_hash, description, captured_at, change_summary) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (int(job_id), _content_hash(current_desc), current_desc, now,
+                 json.dumps({"initial": True})),
+            )
+            out["baseline_created"] = True
+            out["snapshot_id"] = int(cur.lastrowid)
+            baseline_hash = _content_hash(current_desc)
+            baseline_desc = current_desc
+        else:
+            baseline_hash = latest["content_hash"] or ""
+            baseline_desc = latest["description"] or ""
+        candidate = current_desc if new_description is None else str(new_description)
+        cand_hash = _content_hash(candidate)
+        out["content_hash"] = cand_hash
+        if cand_hash == baseline_hash:
+            return out
+        summary = _diff_summary(baseline_desc, candidate)
+        cur = c.execute(
+            "INSERT INTO job_posting_snapshot "
+            "(job_id, content_hash, description, captured_at, change_summary) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (int(job_id), cand_hash, candidate, now, json.dumps(summary)),
+        )
+        out["changed"] = True
+        out["snapshot_id"] = int(cur.lastrowid)
+        out["change_summary"] = summary
+        if new_description is not None and candidate != current_desc:
+            c.execute(
+                "UPDATE job_posting SET description = ? WHERE id = ?",
+                (candidate, int(job_id)),
+            )
+    try:
+        audit("job_posting_changed", "job_posting", int(job_id),
+              snapshot_id=out["snapshot_id"],
+              chars_added=(summary or {}).get("chars_added"),
+              chars_removed=(summary or {}).get("chars_removed"))
+    except Exception:
+        pass
+    return out
+
+
+def _annotate_posting_changed(rows: list[dict]) -> list[dict]:
+    """Set posting_changed=true on job dicts whose latest non-baseline
+    snapshot was captured AFTER the user's most recent live application
+    activity for that job (applied_at, else the application's creation ts
+    from audit_json[0].ts). Jobs without an application are never flagged."""
+    for r in rows:
+        if isinstance(r, dict):
+            r["posting_changed"] = False
+    ids = [int(r["id"]) for r in rows if isinstance(r, dict) and r.get("id") is not None]
+    if not ids:
+        return rows
+    conn = get_conn()
+    ph = ",".join("?" * len(ids))
+    changed_at: dict[int, float] = {}
+    try:
+        for s in conn.execute(
+            f"SELECT job_id, MAX(captured_at) AS last_change "
+            f"FROM job_posting_snapshot "
+            f"WHERE job_id IN ({ph}) "
+            f"AND COALESCE(json_extract(change_summary, '$.initial'), 0) != 1 "
+            f"GROUP BY job_id",
+            ids,
+        ).fetchall():
+            changed_at[int(s["job_id"])] = float(s["last_change"] or 0)
+    except Exception as exc:  # noqa: BLE001
+        log.debug("posting_changed snapshot probe failed: %s", exc)
+        return rows
+    if not changed_at:
+        return rows
+    app_ref: dict[int, float] = {}
+    try:
+        for a in conn.execute(
+            f"SELECT job_id, "
+            f"MAX(COALESCE(applied_at, json_extract(audit_json, '$[0].ts'), 0)) AS ref_ts "
+            f"FROM application "
+            f"WHERE job_id IN ({ph}) AND status NOT IN ('archived','rejected') "
+            f"GROUP BY job_id",
+            ids,
+        ).fetchall():
+            app_ref[int(a["job_id"])] = float(a["ref_ts"] or 0)
+    except Exception as exc:  # noqa: BLE001
+        log.debug("posting_changed application probe failed: %s", exc)
+        return rows
+    for r in rows:
+        if not isinstance(r, dict):
+            continue
+        jid = r.get("id")
+        if jid in app_ref and changed_at.get(jid, 0.0) > app_ref[jid]:
+            r["posting_changed"] = True
+    return rows
 
 
 def _alias_job(row: dict) -> dict:
@@ -64,6 +250,7 @@ def list_endpoint(
         limit=limit, status=status, source=source, min_score=min_score, offset=offset
     )
     rows = [_alias_job(r) for r in rows]
+    rows = _annotate_posting_changed(rows)
     return {"ok": True, "data": rows, "count": len(rows)}
 
 
@@ -72,7 +259,68 @@ def get_endpoint(job_id: int) -> dict:
     row = get_job(job_id)
     if not row:
         raise HTTPException(404, f"job {job_id} not found")
-    return {"ok": True, "data": _alias_job(row)}
+    data = _alias_job(row)
+    _annotate_posting_changed([data])
+    return {"ok": True, "data": data}
+
+
+@router.post("/{job_id}/snapshot-check")
+def snapshot_check_endpoint(job_id: int, body: Optional[SnapshotCheckBody] = None) -> dict:
+    """Compare the job's description against its latest snapshot and record a
+    new snapshot when it changed.
+
+    Request: optional JSON {"description": "<freshly fetched JD text>"}. With a
+    body, the supplied text is the candidate (and is written back to the job
+    row on change); without one, the job row's current description is checked
+    against the latest snapshot. The first call per job records a baseline.
+
+    Response: {ok, data: {job_id, changed, baseline_created, snapshot_id,
+    change_summary, content_hash}} — change_summary carries the naive diff
+    stats (chars_added/chars_removed/added_keywords/removed_keywords).
+    """
+    try:
+        out = snapshot_job_if_changed(
+            job_id, body.description if body is not None else None
+        )
+    except LookupError as exc:
+        raise HTTPException(404, str(exc))
+    return {"ok": True, "data": out}
+
+
+@router.get("/{job_id}/snapshots")
+def list_snapshots_endpoint(job_id: int) -> dict:
+    """JD snapshot history for a job, newest first.
+
+    Response: {ok, data: [{id, job_id, content_hash, captured_at,
+    change_summary (parsed dict or null), initial (bool), description}],
+    count}.
+    """
+    conn = get_conn()
+    if not conn.execute(
+        "SELECT 1 FROM job_posting WHERE id = ?", (int(job_id),)
+    ).fetchone():
+        raise HTTPException(404, f"job {job_id} not found")
+    rows = conn.execute(
+        "SELECT id, job_id, content_hash, description, captured_at, change_summary "
+        "FROM job_posting_snapshot WHERE job_id = ? "
+        "ORDER BY captured_at DESC, id DESC",
+        (int(job_id),),
+    ).fetchall()
+    data: list[dict] = []
+    for r in rows:
+        d = dict(r)
+        cs = d.get("change_summary")
+        if isinstance(cs, str) and cs.strip():
+            try:
+                d["change_summary"] = json.loads(cs)
+            except Exception:
+                pass
+        d["initial"] = bool(
+            isinstance(d.get("change_summary"), dict)
+            and d["change_summary"].get("initial")
+        )
+        data.append(d)
+    return {"ok": True, "data": data, "count": len(data)}
 
 
 @router.patch("/{job_id}/status")

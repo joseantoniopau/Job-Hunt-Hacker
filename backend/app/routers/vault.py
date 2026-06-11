@@ -19,6 +19,7 @@ from ..models.schemas import ClaimUpdate, OK
 from ..services import (
     career_vault,
     contradiction_detector,
+    demo_seed,
     evidence_extractor,
     llm_vault_reingest,
     url_ingestion,
@@ -50,9 +51,71 @@ class QuickUpdateRequest(BaseModel):
     )
 
 
+class DemoSeedRequest(BaseModel):
+    confirm: bool = False
+
+
 @router.get("/summary")
 def summary() -> dict:
     return {"ok": True, "data": career_vault.summary()}
+
+
+# ---------------------------------------------------------------------------
+# ONBOARDING DEMO MODE
+# ---------------------------------------------------------------------------
+
+@router.post("/demo-seed")
+def demo_seed_create(body: DemoSeedRequest) -> dict:
+    """Seed the onboarding demo vault.
+
+    Request: `{"confirm": true}` — the explicit flag guards against
+    accidental seeding from API explorers (400 without it).
+
+    Only allowed when the vault is effectively empty (zero evidence
+    sources AND no user-entered profile name) — otherwise 409.
+
+    Response: `{"ok": true, "data": {profile_fields_set: [str],
+    source_ids: [int], claims_inserted: int, job_ids: [int],
+    jobs_scored: int, score_errors: [str], application_ids: [int]}}`.
+    Seeds a fictional profile (Alex Rivera / demo@example.invalid), two
+    demo evidence sources, ~15-20 provenance-backed claims, six scored
+    demo job postings, and two applications in different pipeline stages.
+    All rows are tagged (source/source_type = 'demo') for exact cleanup.
+    """
+    if not body.confirm:
+        raise HTTPException(400, 'pass {"confirm": true} to seed demo data')
+    try:
+        result = demo_seed.seed_demo()
+    except demo_seed.DemoSeedConflict as exc:
+        raise HTTPException(409, str(exc))
+    return {"ok": True, "data": result}
+
+
+@router.delete("/demo-seed")
+def demo_seed_delete() -> dict:
+    """Wipe exactly the demo rows seeded by POST /api/vault/demo-seed.
+
+    Deletes evidence sources with source_type='demo' (claims + embeddings
+    follow), job postings with source='demo' (matches/applications cascade),
+    and resets any profile field whose value still equals the demo value.
+    Idempotent — zero counts when no demo data exists.
+
+    Response: `{"ok": true, "data": {sources_deleted: int,
+    claims_deleted: int, jobs_deleted: int, applications_deleted: int,
+    profile_fields_reset: [str]}}`.
+    """
+    return {"ok": True, "data": demo_seed.delete_demo()}
+
+
+@router.get("/demo-status")
+def demo_status() -> dict:
+    """Whether demo data is currently present.
+
+    Response: `{"ok": true, "active": bool, "data": {active: bool,
+    sources: int, claims: int, jobs: int, applications: int}}`.
+    """
+    status = demo_seed.demo_status()
+    return {"ok": True, "active": status["active"], "data": status}
 
 
 @router.get("/claims")

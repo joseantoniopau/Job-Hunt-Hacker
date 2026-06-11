@@ -550,6 +550,35 @@ SCHEMA = [
         is_latest INTEGER DEFAULT 1
     )""",
     """CREATE INDEX IF NOT EXISTS idx_career_snapshot_latest ON career_snapshot(is_latest, created_at)""",
+
+    # ---- JD change tracking: point-in-time copies of a job's description.
+    # change_summary holds JSON diff stats vs the previous snapshot
+    # ({"chars_added":..,"chars_removed":..,"added_keywords":[..],...});
+    # the very first snapshot per job is the baseline ({"initial": true}).
+    """CREATE TABLE IF NOT EXISTS job_posting_snapshot (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        job_id INTEGER NOT NULL,
+        content_hash TEXT,
+        description TEXT,
+        captured_at REAL,
+        change_summary TEXT,
+        FOREIGN KEY (job_id) REFERENCES job_posting(id) ON DELETE CASCADE
+    )""",
+    """CREATE INDEX IF NOT EXISTS idx_jps_job ON job_posting_snapshot(job_id)""",
+
+    # ---- In-app notifications (deadline reminders, etc.) ----
+    """CREATE TABLE IF NOT EXISTS notification (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ts REAL NOT NULL,
+        kind TEXT NOT NULL,
+        title TEXT,
+        body TEXT,
+        read INTEGER DEFAULT 0,
+        target_type TEXT,
+        target_id INTEGER
+    )""",
+    """CREATE INDEX IF NOT EXISTS idx_notification_read ON notification(read, ts)""",
+    """CREATE INDEX IF NOT EXISTS idx_notification_kind ON notification(kind)""",
 ]
 
 
@@ -561,6 +590,10 @@ def _init_schema(conn: sqlite3.Connection) -> None:
     _ensure_column(conn, "email_event", "status_updated_at", "REAL")
     _ensure_column(conn, "saved_search", "last_error", "TEXT")
     _ensure_column(conn, "saved_search", "last_error_ts", "REAL")
+    # application deadlines (PATCH /api/applications/{id}) + one-shot reminder stamp
+    _ensure_column(conn, "application", "deadline_at", "REAL")
+    _ensure_column(conn, "application", "deadline_source", "TEXT")
+    _ensure_column(conn, "application", "reminder_sent_at", "REAL")
     # job_posting (source, external_id) uniqueness: dedupe rows that predate
     # the constraint, THEN create the partial unique index (creation would
     # fail if duplicates were still present).

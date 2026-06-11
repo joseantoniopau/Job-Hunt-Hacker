@@ -134,6 +134,7 @@ ROUTER_MODULES = [
     "followups",
     # ---- Operational ----
     "updates",
+    "extension_api",
 ]
 
 _loaded: list[str] = []

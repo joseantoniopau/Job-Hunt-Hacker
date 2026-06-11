@@ -67,6 +67,7 @@ def start() -> None:
         register_email_calendar_retention()
         register_db_maintenance()
         register_saved_searches()
+        register_deadline_reminders()
         try:
             audit("scheduler_start", "system", jobs=[j.id for j in s.get_jobs()])
         except Exception:
@@ -664,6 +665,104 @@ def register_email_calendar_retention() -> bool:
         return True
     except Exception as exc:  # noqa: BLE001
         log.warning("email/calendar retention scheduler register failed: %s", exc)
+        return False
+
+
+# ---------- application deadline reminders ----------
+
+_DEADLINE_JOB_ID = "jhh.deadline_reminders"
+_DEADLINE_WINDOW_S = 48 * 3600
+
+
+def run_deadline_reminders() -> dict:
+    """One-shot reminders for application deadlines inside the next 48h.
+
+    Picks every live application (status not archived/rejected) whose
+    deadline_at is <= now+48h — including already-overdue ones that were
+    never reminded — and whose reminder_sent_at is NULL. For each match it
+    inserts a `notification` row (kind='deadline_reminder', target the
+    application), writes a `deadline_reminder` audit entry, and stamps
+    reminder_sent_at so the reminder fires exactly once per deadline.
+    PATCHing a new deadline_at resets reminder_sent_at, re-arming the job.
+    """
+    now = time.time()
+    horizon = now + _DEADLINE_WINDOW_S
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT a.id, a.job_id, a.deadline_at, "
+        "j.title AS job_title, j.company AS job_company "
+        "FROM application a LEFT JOIN job_posting j ON j.id = a.job_id "
+        "WHERE a.deadline_at IS NOT NULL AND a.reminder_sent_at IS NULL "
+        "AND a.deadline_at <= ? "
+        "AND a.status NOT IN ('archived','rejected') "
+        "ORDER BY a.deadline_at ASC",
+        (horizon,),
+    ).fetchall()
+    reminded: list[int] = []
+    for r in rows:
+        app_id = int(r["id"])
+        deadline_at = float(r["deadline_at"])
+        hours_left = (deadline_at - now) / 3600.0
+        label = " — ".join(
+            p for p in (r["job_company"], r["job_title"]) if p
+        ) or f"application {app_id}"
+        if hours_left >= 0:
+            title = f"Application deadline in {hours_left:.1f}h: {label}"
+            body = (
+                f"The application deadline for {label} is in {hours_left:.1f} "
+                f"hours (epoch {deadline_at:.0f}). Submit before it closes."
+            )
+        else:
+            title = f"Application deadline passed: {label}"
+            body = (
+                f"The application deadline for {label} passed "
+                f"{-hours_left:.1f} hours ago (epoch {deadline_at:.0f})."
+            )
+        try:
+            with tx() as c:
+                c.execute(
+                    "INSERT INTO notification "
+                    "(ts, kind, title, body, read, target_type, target_id) "
+                    "VALUES (?, ?, ?, ?, 0, 'application', ?)",
+                    (now, "deadline_reminder", title, body, app_id),
+                )
+                c.execute(
+                    "UPDATE application SET reminder_sent_at = ? "
+                    "WHERE id = ? AND reminder_sent_at IS NULL",
+                    (now, app_id),
+                )
+        except Exception as exc:  # noqa: BLE001
+            log.warning("deadline reminder for application %s failed: %s", app_id, exc)
+            continue
+        try:
+            audit("deadline_reminder", "application", app_id,
+                  deadline_at=deadline_at, hours_left=round(hours_left, 2),
+                  company=r["job_company"], title=r["job_title"])
+        except Exception:
+            pass
+        reminded.append(app_id)
+    return {"ok": True, "count": len(reminded), "reminded": reminded,
+            "horizon_ts": horizon}
+
+
+def register_deadline_reminders() -> bool:
+    """Every 6 hours. Idempotent via replace_existing."""
+    s = _get_scheduler()
+    if s is None:
+        return False
+    try:
+        s.add_job(
+            run_deadline_reminders,
+            IntervalTrigger(hours=6),
+            id=_DEADLINE_JOB_ID,
+            replace_existing=True,
+            max_instances=1,
+            coalesce=True,
+            misfire_grace_time=3600,
+        )
+        return True
+    except Exception as exc:  # noqa: BLE001
+        log.warning("deadline reminders scheduler register failed: %s", exc)
         return False
 
 

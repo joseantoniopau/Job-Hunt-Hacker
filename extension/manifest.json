@@ -1,16 +1,15 @@
 {
   "manifest_version": 3,
-  "name": "Job Hunt Hacker — Save to Vault",
+  "name": "Job Hunt Hacker — Autofill Assistant",
   "short_name": "JHH",
-  "version": "0.1.0",
-  "description": "Save the current job posting (or any URL with career evidence) into your local Job Hunt Hacker vault.",
-  "permissions": ["activeTab", "storage"],
+  "version": "0.2.0",
+  "description": "Evidence-grounded application autofill from your local Job Hunt Hacker vault. Detects form fields, fills only on your command, and NEVER auto-submits.",
+  "permissions": ["activeTab", "storage", "scripting"],
   "host_permissions": [
-    "http://127.0.0.1/*",
-    "http://localhost/*"
+    "http://127.0.0.1:8731/*"
   ],
   "action": {
-    "default_title": "Save to Job Hunt Hacker",
+    "default_title": "Job Hunt Hacker",
     "default_popup": "popup.html"
   },
   "icons": {}

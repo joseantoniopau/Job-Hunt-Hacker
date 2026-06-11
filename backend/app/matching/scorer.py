@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import re
+import sqlite3
 import time
 from functools import lru_cache
 from pathlib import Path
@@ -415,6 +416,107 @@ def _role_family_penalty(job_title: str, target_titles: list[str]) -> float:
     return 0.45
 
 
+# ----- USER FEEDBACK ADJUSTMENTS (deterministic, no LLM) ---------------------
+#
+# Users mark jobs 'good_fit' / 'bad_fit' (POST /api/effectiveness/job-feedback,
+# stored as effectiveness_event outcome='user_feedback_good'/'user_feedback_bad'
+# with job_id set). Per role family of the rated jobs' titles we derive ONE
+# multiplicative factor that nudges the scorer:
+#
+#   good = # good_fit events whose job title falls in the family
+#   bad  = # bad_fit  events whose job title falls in the family
+#   n    = good + bad
+#   signal = (good - bad) / n            -> in [-1.0, +1.0]
+#   factor = 1 + MAX_SHIFT * signal      -> in [1 - MAX_SHIFT, 1 + MAX_SHIFT]
+#
+# i.e. all-good feedback gives factor 1.15 (+15%), all-bad gives 0.85 (-15%),
+# a 3:2 good/bad mix gives 1 + 0.15 * 0.2 = 1.03. The factor is inert
+# (active=False, treated as 1.0) until the family has at least
+# FEEDBACK_MIN_EVENTS rated jobs — small samples are noise, not signal.
+#
+# Applied in score_job() in two bounded places:
+#   1. keyword weight:   weights["keywords"] *= factor BEFORE _renormalize(),
+#      so consistent good feedback raises the keywords dimension's relative
+#      share of the overall score by at most ~15% (bad feedback lowers it).
+#   2. role-family penalty leniency: penalty = clamp(base_penalty * factor, 0, 1).
+#      Good feedback on a family softens its mismatch penalty
+#      (0.45 -> up to 0.5175); bad feedback hardens it (1.0 -> down to 0.85,
+#      0.45 -> down to 0.3825). The clamp keeps the multiplier <= 1.0 so
+#      feedback can never turn the penalty into a bonus.
+
+FEEDBACK_MIN_EVENTS = 5
+FEEDBACK_MAX_SHIFT = 0.15
+_FEEDBACK_GOOD = "user_feedback_good"
+_FEEDBACK_BAD = "user_feedback_bad"
+
+
+def load_feedback_adjustments() -> dict[str, dict]:
+    """Aggregate user job-fit feedback into per-role-family scoring factors.
+
+    Returns {family: {"good", "bad", "n", "signal", "factor", "active"}}.
+    `factor` is already gated: families with n < FEEDBACK_MIN_EVENTS report
+    factor 1.0 and active False. Deterministic — pure SQL + arithmetic.
+    """
+    conn = get_conn()
+    try:
+        rows = conn.execute(
+            "SELECT e.outcome, j.title FROM effectiveness_event e "
+            "JOIN job_posting j ON j.id = e.job_id "
+            "WHERE e.outcome IN (?, ?)",
+            (_FEEDBACK_GOOD, _FEEDBACK_BAD),
+        ).fetchall()
+    except sqlite3.OperationalError:
+        # effectiveness_event.job_id column doesn't exist yet — that column is
+        # added additively the first time feedback is recorded, so its absence
+        # simply means there is no feedback.
+        return {}
+    counts: dict[str, dict[str, int]] = {}
+    for r in rows:
+        for fam in _classify_role_families(r["title"] or ""):
+            c = counts.setdefault(fam, {"good": 0, "bad": 0})
+            if r["outcome"] == _FEEDBACK_GOOD:
+                c["good"] += 1
+            else:
+                c["bad"] += 1
+    out: dict[str, dict] = {}
+    for fam, c in counts.items():
+        n = c["good"] + c["bad"]
+        signal = (c["good"] - c["bad"]) / n if n else 0.0
+        raw = 1.0 + FEEDBACK_MAX_SHIFT * signal
+        # Explicit clamp — signal is already in [-1, 1] but keep the bound
+        # structural so the +/-15% cap survives future math changes.
+        raw = max(1.0 - FEEDBACK_MAX_SHIFT, min(1.0 + FEEDBACK_MAX_SHIFT, raw))
+        active = n >= FEEDBACK_MIN_EVENTS
+        out[fam] = {
+            "good": c["good"],
+            "bad": c["bad"],
+            "n": n,
+            "signal": round(signal, 4),
+            "factor": round(raw, 4) if active else 1.0,
+            "active": active,
+        }
+    return out
+
+
+def _feedback_factor_for_job(job_title: str,
+                             adjustments: Optional[dict] = None) -> tuple[float, list[str]]:
+    """Resolve the feedback factor for one job: the mean factor over the
+    job title's role families that have ACTIVE adjustments (n >= 5).
+    Returns (factor, families_applied); (1.0, []) when nothing applies.
+    The mean of per-family factors (each within +/-15%) stays within
+    +/-15%, but we clamp anyway to keep the bound explicit.
+    """
+    if adjustments is None:
+        adjustments = load_feedback_adjustments()
+    fams = sorted(_classify_role_families(job_title or ""))
+    active = [f for f in fams if adjustments.get(f, {}).get("active")]
+    if not active:
+        return 1.0, []
+    factor = sum(float(adjustments[f]["factor"]) for f in active) / len(active)
+    factor = max(1.0 - FEEDBACK_MAX_SHIFT, min(1.0 + FEEDBACK_MAX_SHIFT, factor))
+    return round(factor, 4), active
+
+
 def _explain(job: dict, scores: dict, ats: dict, llm_polish: bool = True) -> str:
     base = _template_explanation(job, scores, ats)
     if get_llm is None or not llm_polish:
@@ -495,10 +597,12 @@ def _job_record_text(job: dict) -> str:
 
 
 def score_job(job_id: int, weights: Optional[dict] = None,
-              llm_polish: bool = True) -> dict:
+              llm_polish: bool = True, apply_feedback: bool = True) -> dict:
     """Score one job. `llm_polish=False` skips the per-job explanation
     polish LLM call — bulk paths (saved searches, dashboard refresh) must
-    use it, or scoring 50 new jobs costs 50 local-LLM round-trips."""
+    use it, or scoring 50 new jobs costs 50 local-LLM round-trips.
+    `apply_feedback=False` skips the user-feedback adjustment (see
+    load_feedback_adjustments) — useful for comparing raw vs adjusted."""
     conn = get_conn()
     job_row = conn.execute("SELECT * FROM job_posting WHERE id = ?", (job_id,)).fetchone()
     if not job_row:
@@ -540,6 +644,19 @@ def score_job(job_id: int, weights: Optional[dict] = None,
         skip.add("experience")
 
     weights = dict(weights or user.get("scoring_weights_json") or default_weights())
+
+    # User-feedback adjustment (see the USER FEEDBACK ADJUSTMENTS block above
+    # for the math): fb_factor is the mean factor over the job title's role
+    # families with >= FEEDBACK_MIN_EVENTS good/bad verdicts, bounded to
+    # [0.85, 1.15]. Effect 1: scale the keyword weight BEFORE renormalization
+    # so keyword coverage matters more in families the user keeps approving
+    # and less in families they keep rejecting.
+    fb_factor, fb_families = (1.0, [])
+    if apply_feedback:
+        fb_factor, fb_families = _feedback_factor_for_job(job.get("title") or "")
+    if fb_factor != 1.0 and "keywords" in weights:
+        weights["keywords"] = float(weights["keywords"]) * fb_factor
+
     eff_weights = _renormalize(weights, skip)
 
     overall = 0.0
@@ -551,10 +668,16 @@ def score_job(job_id: int, weights: Optional[dict] = None,
     # just because they share generic skills (Python, communication, etc).
     # If the user's target_titles don't share a discipline family with the
     # job title, multiply the overall score by 0.45.
-    penalty = _role_family_penalty(job.get("title") or "", user.get("target_titles") or [])
+    base_penalty = _role_family_penalty(job.get("title") or "", user.get("target_titles") or [])
+    # Effect 2 of the feedback loop: leniency. Good feedback on this family
+    # softens the penalty (0.45 * 1.15 = 0.5175); bad feedback hardens it
+    # (1.0 * 0.85 = 0.85). Clamped to [0, 1] so it never becomes a bonus.
+    penalty = max(0.0, min(1.0, base_penalty * fb_factor))
     overall *= penalty
     scores["overall"] = round(overall, 4)
     scores["role_family_penalty"] = round(penalty, 4)
+    scores["role_family_penalty_base"] = round(base_penalty, 4)
+    scores["feedback_factor"] = round(fb_factor, 4)
 
     # Categorize keywords for the persisted lists
     matched = [k["keyword"] for k in ats["keywords"] if k["support_status"] == "supported"]
@@ -570,7 +693,9 @@ def score_job(job_id: int, weights: Optional[dict] = None,
         red_flags.append(f"Level mismatch ({job_level}).")
     if scores["location"] <= 0.3:
         red_flags.append("Location mismatch — likely restricted to another country or region.")
-    if scores.get("role_family_penalty", 1.0) < 1.0:
+    # Red-flag on the BASE penalty: a feedback-hardened penalty (e.g. 1.0 *
+    # 0.85 on a matched family) is not a discipline mismatch.
+    if base_penalty < 1.0:
         red_flags.append("Role-family mismatch — job title is outside your target disciplines.")
 
     explanation = _explain(job, scores, ats, llm_polish=llm_polish)
@@ -614,6 +739,10 @@ def score_job(job_id: int, weights: Optional[dict] = None,
         "ats": ats,
         "weights_used": eff_weights,
         "level_detected": job_level,
+        "feedback_factor": round(fb_factor, 4),
+        "feedback_families": fb_families,
+        "role_family_penalty": scores["role_family_penalty"],
+        "role_family_penalty_base": scores["role_family_penalty_base"],
     }
 
 

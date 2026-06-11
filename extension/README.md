@@ -1,111 +1,97 @@
-# Job Hunt Hacker — Browser Extension
+# Job Hunt Hacker — Autofill Assistant (browser extension)
 
-A tiny Manifest V3 popup that sends the active tab's URL to your local
-Job Hunt Hacker server's evidence pipeline. Useful for one-click capture
-of job postings, blog posts about your work, conference talks, GitHub
-projects, or anything else you want pulled into the Career Evidence
-Vault.
+A Manifest V3 extension that connects any job-application page to your
+local Job Hunt Hacker vault:
 
-## What it does
+- **Scan & autofill** — detects application-form fields on the current
+  page (name, email, phone, LinkedIn, GitHub, website, location, cover
+  letter, resume text, "why this company", experience summary) and opens
+  a floating panel with per-field **FILL** buttons, **FILL ALL**,
+  **COPY RESUME TEXT**, and **COPY COVER LETTER**. Values come from
+  `GET /api/extension/fill-data` — your profile, the best-matching job
+  in the vault, the latest tailored resume / cover letter for that job,
+  and template-composed answers grounded ONLY in verified claims.
+- **Save page to vault** — POSTs the current URL to
+  `/api/evidence/url` for evidence ingestion (the original capture
+  feature).
+- **Connection status** — the popup pings `GET /api/extension/status`
+  and shows whether the app is reachable + whose profile is loaded,
+  with a link to open the app.
 
-- Reads the current tab's URL via `activeTab`.
-- POSTs `{"url": "..."}` to `<server>/api/evidence/url`.
-- Lets you configure the local server URL (stored in `chrome.storage.local`).
-- No tracking, no remote calls — only your local server.
+## Hard guarantees
 
-Default server: `http://127.0.0.1:8731`.
+- **NEVER auto-submits.** The content script has no code path that
+  clicks submit buttons or calls `form.submit()`. It only writes a
+  field's value (dispatching `input` + `change` events) when *you*
+  click FILL.
+- **Evidence-grounded.** Long-form answer drafts are composed from
+  verbatim verified-claim text + facts on the job posting itself.
+  An empty vault produces empty drafts — never invented prose.
+- **Local-only network.** The only network destination is your local
+  server (`http://127.0.0.1:8731`). The injected content script makes
+  zero network calls — data reaches it via extension messaging.
 
----
+## Files
+
+| File            | Purpose                                                       |
+|-----------------|---------------------------------------------------------------|
+| `manifest.json` | MV3 declaration: `activeTab`, `storage`, `scripting`; host access only to `http://127.0.0.1:8731/*`. |
+| `popup.html`    | Brutalist popup UI (status, autofill, save-to-vault, server URL). |
+| `popup.js`      | Talks to the local server, injects `content.js` on demand.     |
+| `content.js`    | Field-detection heuristics + floating autofill panel. No network. |
 
 ## Load in Chrome / Edge / Brave
 
-1. Start the Job Hunt Hacker app locally (the popup will hit it at
-   `http://127.0.0.1:8731` by default):
+1. Start the app:
 
    ```
    cd /path/to/Job-Hunt-Hacker
    ./run.sh
    ```
 
-2. Open `chrome://extensions/`.
-3. Toggle **Developer mode** on (top right).
-4. Click **Load unpacked**.
-5. Select this `extension/` directory.
-6. Pin the new "Job Hunt Hacker — Save to Vault" extension to the toolbar.
+2. Open `chrome://extensions/`, toggle **Developer mode** on.
+3. **Load unpacked** → select this `extension/` directory.
+4. Pin "Job Hunt Hacker — Autofill Assistant" to the toolbar.
 
-You should now see the JHH icon. Click it on any page (e.g. a job
-posting on LinkedIn) and hit **Save to Job Hunt Hacker**.
-
----
+On any application page: click the icon → **SCAN & AUTOFILL THIS PAGE**.
+The panel lists every detected field with what would be filled. Nothing
+is written until you click FILL / FILL ALL, and nothing is ever
+submitted for you.
 
 ## Load in Firefox
 
-Firefox supports MV3 but requires you to load the extension as a
-"temporary add-on" during development (it's removed when you restart
-the browser):
-
 1. Open `about:debugging#/runtime/this-firefox`.
-2. Click **Load Temporary Add-on…**
-3. Pick **any file** inside this `extension/` directory (e.g. `manifest.json`).
-4. The extension icon appears in the toolbar.
+2. **Load Temporary Add-on…** → pick `manifest.json` in this directory.
 
-For permanent installation in Firefox, the extension needs to be
-packaged and signed by Mozilla — out of scope here.
-
----
+(Temporary add-ons are removed on browser restart; permanent installs
+require Mozilla signing.)
 
 ## Permissions explained
 
-The extension requests only:
+- `activeTab` — read the active tab's URL and allow injection into it,
+  granted per click on the extension.
+- `scripting` — inject `content.js` into the active tab when you click
+  **Scan & autofill** (never automatically).
+- `storage` — remember your server URL.
+- `host_permissions: http://127.0.0.1:8731/*` — lets the popup `fetch()`
+  your local server. No other host access is requested; the extension
+  cannot reach the internet.
 
-- `activeTab` — read the URL of the tab you're currently looking at.
-  This is granted *per click*; the extension can't read your other tabs.
-- `storage` — persist the server URL between popups.
-- `host_permissions: http://127.0.0.1/*, http://localhost/*` — needed
-  so the popup's `fetch()` to `127.0.0.1:8731` succeeds.
+## Custom port
 
-No remote network access is requested. The extension cannot reach the
-internet — only your local Job Hunt Hacker server.
-
----
-
-## Customizing the server URL
-
-Click the extension icon → edit the **Local server** field → click
-**Save server URL**. The new value is remembered across sessions via
-`chrome.storage.local`.
-
-Common values:
-
-- `http://127.0.0.1:8731` — default
-- `http://127.0.0.1:<your-port>` — if you launched JHH on a custom port
-- `http://localhost:8731` — same thing, alternate hostname
-
-If `host_permissions` in `manifest.json` doesn't cover your hostname,
-add it there and reload the extension (`chrome://extensions/` → reload).
-
----
+If you run JHH on a non-default port, set the server URL in the popup
+**and** add the matching origin to `host_permissions` in
+`manifest.json`, then reload the extension.
 
 ## Troubleshooting
 
-- **"Could not reach <server>..."** — the JHH server isn't running, or
-  it's on a port the manifest doesn't allow. Check the manifest's
-  `host_permissions` block.
-- **Save returns 422 / "no readable text at url"** — the page didn't
-  render any text the readability extractor could parse (login wall,
-  JS-only SPA, etc.). Save it as text manually via the JHH UI instead.
-- **Save returns 401 / 403** — the JHH server is gated behind a bearer
-  token. The extension does not currently support custom auth headers
-  — disable token auth locally or extend `popup.js` with the right
-  `Authorization` header.
-
----
-
-## Files in this directory
-
-| File          | Purpose                                                |
-|---------------|--------------------------------------------------------|
-| `manifest.json` | Manifest V3 declaration (name, version, permissions). |
-| `popup.html`    | Popup UI shown when the toolbar icon is clicked.      |
-| `popup.js`      | Talks to the local server + manages stored settings.  |
-| `README.md`     | You are here.                                         |
+- **OFFLINE — app not reachable**: the server isn't running, or it's on
+  a port not covered by `host_permissions`.
+- **Panel doesn't appear**: some pages (chrome://, the Web Store,
+  PDF viewers) forbid script injection. Use COPY buttons from a normal
+  tab, or paste manually from the app.
+- **Fields detected but "(no data in vault)"**: fill in your profile in
+  the app (Setup), upload a resume, or generate a tailored resume /
+  cover letter for the matched job first.
+- **401 / 403 from the server**: local bearer-token auth is enabled;
+  the extension doesn't send auth headers — disable token auth locally.
