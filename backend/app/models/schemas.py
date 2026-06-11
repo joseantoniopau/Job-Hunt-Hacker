@@ -20,6 +20,7 @@ class UserProfileIn(BaseModel):
     excluded_keywords: list[str] = Field(default_factory=list)
     preferred_locations: list[str] = Field(default_factory=list)
     remote_preference: Optional[str] = None
+    timezone: Optional[str] = None  # IANA name, e.g. 'America/New_York'
     employment_types: list[str] = Field(default_factory=list)
     minimum_salary: Optional[int] = Field(default=None, ge=0)
     preferred_salary: Optional[int] = Field(default=None, ge=0)

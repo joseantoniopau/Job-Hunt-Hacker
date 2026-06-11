@@ -593,6 +593,8 @@ def _init_schema(conn: sqlite3.Connection) -> None:
     # per-adapter circuit breaker (services/job_sources/pipeline.py)
     _ensure_column(conn, "source_state", "consecutive_failures", "INTEGER DEFAULT 0")
     _ensure_column(conn, "source_state", "disabled_until", "REAL")
+    # user timezone for local-time interview-slot suggestions (calendar)
+    _ensure_column(conn, "user_profile", "timezone", "TEXT")
     # application deadlines (PATCH /api/applications/{id}) + one-shot reminder stamp
     _ensure_column(conn, "application", "deadline_at", "REAL")
     _ensure_column(conn, "application", "deadline_source", "TEXT")

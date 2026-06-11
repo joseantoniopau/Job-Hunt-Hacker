@@ -85,6 +85,20 @@ def run_now(sid: int) -> dict:
     return {"ok": True, "data": res}
 
 
+@router.post("/saved-searches/{sid}/dry-run")
+def dry_run(sid: int, results_cap: int = 5) -> dict:
+    """Preview what a saved search would pull WITHOUT persisting anything.
+
+    Response data: {would_insert, duplicates, discovered, top: [{title,
+    company, url} x5], per_source, errors}. `results_cap` (default 5) keeps
+    the preview cheap. Lets the user sanity-check a query before scheduling.
+    """
+    res = sched.dry_run_saved_search(int(sid), results_cap=max(1, min(int(results_cap), 25)))
+    if not res.get("ok"):
+        raise HTTPException(404, res.get("detail") or "saved search not found")
+    return {"ok": True, "data": res}
+
+
 @router.post("/inbox-sweep")
 def inbox_sweep() -> dict:
     return {"ok": True, "data": sched.run_inbox_sweep()}

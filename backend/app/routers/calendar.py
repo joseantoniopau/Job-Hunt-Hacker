@@ -46,10 +46,19 @@ def status() -> dict:
 
 @router.post("/slots")
 def slots(body: SlotsBody) -> dict:
+    # Honor the user's timezone so work hours are local, not server-UTC.
+    user_tz = None
+    try:
+        row = get_conn().execute("SELECT timezone FROM user_profile WHERE id = 1").fetchone()
+        if row is not None:
+            user_tz = row["timezone"]
+    except Exception:
+        user_tz = None
     out = calendar_google.find_slots(
         window_days=int(body.window_days),
         slot_minutes=int(body.slot_minutes),
         work_hours=(int(body.work_hours_start), int(body.work_hours_end)),
+        tz=user_tz,
     )
     # If the user supplied an availability grid, filter the suggested slots
     # to only those whose weekday+hour appears in their available hours.

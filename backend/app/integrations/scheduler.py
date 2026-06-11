@@ -4,6 +4,7 @@ Without APScheduler installed, exposes the same API but as no-ops.
 """
 from __future__ import annotations
 
+import functools
 import json
 import logging
 import time
@@ -34,6 +35,63 @@ _FOLLOWUP_JOB_ID = "jhh.followups"
 _DIGEST_JOB_ID = "jhh.daily_digest"
 
 
+# ---------- module-owned schema (kept here, not db.py, by ownership) ----------
+
+def _ensure_scheduler_schema() -> None:
+    """Create the job-run history table + user timezone column. Idempotent;
+    safe to call on every import / start()."""
+    try:
+        conn = get_conn()
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS scheduler_job_run (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                job_id TEXT NOT NULL,
+                started_at REAL NOT NULL,
+                finished_at REAL,
+                status TEXT NOT NULL,
+                error TEXT
+            )"""
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_jobrun_job ON scheduler_job_run(job_id, started_at DESC)"
+        )
+        from ..db import _ensure_column
+        _ensure_column(conn, "user_profile", "timezone", "TEXT")
+    except Exception as exc:  # noqa: BLE001
+        log.debug("scheduler schema ensure failed: %s", exc)
+
+
+def _record_run(job_id: str, fn):
+    """Wrap a scheduled job: record start/finish/status/error into
+    scheduler_job_run so status() can surface health, and trim history to
+    the last 50 runs per job. Never lets bookkeeping swallow the result."""
+    started = time.time()
+    status = "ok"
+    error = None
+    try:
+        return fn()
+    except Exception as exc:  # noqa: BLE001
+        status = "failed"
+        error = f"{type(exc).__name__}: {exc}"
+        log.warning("scheduled job %s failed: %s", job_id, error)
+        raise
+    finally:
+        try:
+            with tx() as c:
+                c.execute(
+                    "INSERT INTO scheduler_job_run (job_id, started_at, finished_at, status, error) "
+                    "VALUES (?, ?, ?, ?, ?)",
+                    (job_id, started, time.time(), status, error),
+                )
+                c.execute(
+                    "DELETE FROM scheduler_job_run WHERE job_id = ? AND id NOT IN "
+                    "(SELECT id FROM scheduler_job_run WHERE job_id = ? ORDER BY id DESC LIMIT 50)",
+                    (job_id, job_id),
+                )
+        except Exception:
+            pass
+
+
 def _get_scheduler() -> Optional[Any]:
     global _scheduler
     if not _HAS_APS:
@@ -57,6 +115,7 @@ def start() -> None:
     if _started or getattr(s, "running", False):
         return
     try:
+        _ensure_scheduler_schema()
         s.start(paused=False)
         _started = True
         # standing jobs
@@ -221,9 +280,9 @@ def _run_saved_search(saved_search_id: int) -> dict:
         return {"ok": False, "saved_search_id": int(saved_search_id), "detail": err}
 
 
-def _execute_saved_search(saved_search_id: int, rec: dict) -> dict:
-    """Body of one saved-search run. Raises on failure — _run_saved_search
-    owns the error bookkeeping."""
+def _build_saved_search_query(rec: dict, results_cap: int | None = None):
+    """Build (JobSearchQuery, requested_adapters) from a saved_search row.
+    Shared by the live run and the dry-run preview."""
     query = rec.get("query_json") or {}
     if isinstance(query, str):
         try:
@@ -231,7 +290,6 @@ def _execute_saved_search(saved_search_id: int, rec: dict) -> dict:
         except Exception:
             query = {}
 
-    from ..services.job_sources.pipeline import persist, search_all
     from ..services.job_sources.base import JobSearchQuery
     from ..services.job_sources import REGISTRY
 
@@ -246,6 +304,9 @@ def _execute_saved_search(saved_search_id: int, rec: dict) -> dict:
     if not requested:
         requested = list(REGISTRY.keys())
 
+    rps = int(query.get("results_per_site") or 25)
+    if results_cap is not None:
+        rps = min(rps, int(results_cap))
     # extra.sites is read by the jobspy adapter and must contain SCRAPER
     # names (indeed/google/...), not adapter ids — passing adapter ids
     # ("jobspy", "greenhouse") filters to an empty list inside the adapter,
@@ -255,13 +316,69 @@ def _execute_saved_search(saved_search_id: int, rec: dict) -> dict:
         query=query.get("query") or "",
         location=query.get("location"),
         is_remote=bool(query.get("is_remote")),
-        results_per_site=int(query.get("results_per_site") or 25),
+        results_per_site=rps,
         hours_old=query.get("hours_old"),
         country=query.get("country") or "usa",
         employment_type=query.get("employment_type"),
         distance=query.get("distance"),
         extra={"sites": [s for s in sites if s in jobspy_sites]},
     )
+    return q, requested
+
+
+def dry_run_saved_search(saved_search_id: int, results_cap: int = 5) -> dict:
+    """Run a saved search's query WITHOUT persisting — a cheap preview so the
+    user can see what a search would pull before scheduling it. Counts how
+    many would be inserted vs. skipped as duplicates against the live vault,
+    and returns the first few hits. Never writes job rows."""
+    row = get_conn().execute(
+        "SELECT * FROM saved_search WHERE id = ?", (int(saved_search_id),)
+    ).fetchone()
+    if not row:
+        return {"ok": False, "detail": f"saved_search {saved_search_id} not found"}
+    rec = row_to_dict(row)
+    from ..services.job_sources.pipeline import (
+        search_all, _find_cross_source_duplicate, _CROSS_SOURCE_DEDUP_WINDOW_S,
+    )
+    q, requested = _build_saved_search_query(rec, results_cap=results_cap)
+    sres = search_all(q, requested)
+    records = sres.get("records") or []
+    conn = get_conn()
+    seen: set[str] = set()
+    would_insert = 0
+    duplicates = 0
+    cutoff = time.time() - _CROSS_SOURCE_DEDUP_WINDOW_S
+    for rrec in records:
+        h = rrec.hash()
+        if h in seen:
+            duplicates += 1
+            continue
+        seen.add(h)
+        existing = conn.execute("SELECT 1 FROM job_posting WHERE hash = ?", (h,)).fetchone()
+        if existing or _find_cross_source_duplicate(conn, rrec, cutoff) is not None:
+            duplicates += 1
+        else:
+            would_insert += 1
+    top = [{"title": r.title, "company": r.company, "url": r.apply_url or r.company_url}
+           for r in records[:5]]
+    return {
+        "ok": True,
+        "saved_search_id": int(saved_search_id),
+        "would_insert": would_insert,
+        "duplicates": duplicates,
+        "discovered": len(records),
+        "top": top,
+        "per_source": sres.get("per_source"),
+        "errors": sres.get("errors"),
+    }
+
+
+def _execute_saved_search(saved_search_id: int, rec: dict) -> dict:
+    """Body of one saved-search run. Raises on failure — _run_saved_search
+    owns the error bookkeeping."""
+    from ..services.job_sources.pipeline import persist, search_all
+
+    q, requested = _build_saved_search_query(rec)
     sres = search_all(q, requested)
     pres = persist(sres.get("records") or [])
 
@@ -307,6 +424,13 @@ def run_saved_search_now(saved_search_id: int) -> dict:
     return _run_saved_search(int(saved_search_id))
 
 
+def _run_saved_search_recorded(saved_search_id: int) -> dict:
+    """Scheduled entrypoint — records the run in scheduler_job_run under the
+    per-search job id. Manual run_now bypasses recording (it's user-driven)."""
+    sid = int(saved_search_id)
+    return _record_run(f"saved_search_{sid}", lambda: _run_saved_search(sid))
+
+
 def _register_one_saved_search(sid: int, label: str, query: Any, frequency_hours: int) -> bool:
     s = _get_scheduler()
     if s is None:
@@ -319,7 +443,7 @@ def _register_one_saved_search(sid: int, label: str, query: Any, frequency_hours
         pass
     try:
         s.add_job(
-            _run_saved_search,
+            _run_saved_search_recorded,
             trigger=IntervalTrigger(hours=max(1, int(frequency_hours))),
             args=[int(sid)],
             id=job_id,
@@ -401,7 +525,7 @@ def _register_inbox_sweep() -> None:
         pass
     try:
         s.add_job(
-            run_inbox_sweep,
+            functools.partial(_record_run, _INBOX_JOB_ID, run_inbox_sweep),
             trigger=CronTrigger(hour=7, minute=0),
             id=_INBOX_JOB_ID,
             replace_existing=True,
@@ -445,7 +569,7 @@ def _register_followups() -> None:
         pass
     try:
         s.add_job(
-            run_followups,
+            functools.partial(_record_run, _FOLLOWUP_JOB_ID, run_followups),
             trigger=CronTrigger(hour=8, minute=0),
             id=_FOLLOWUP_JOB_ID,
             replace_existing=True,
@@ -487,7 +611,7 @@ def _register_daily_digest() -> None:
         pass
     try:
         s.add_job(
-            run_daily_digest,
+            functools.partial(_record_run, _DIGEST_JOB_ID, run_daily_digest),
             trigger=CronTrigger(hour=7, minute=0),
             id=_DIGEST_JOB_ID,
             replace_existing=True,
@@ -520,6 +644,24 @@ def status() -> dict:
             }
     except Exception:
         pass
+    # Latest run per job_id from scheduler_job_run (job health for the UI).
+    last_runs: dict[str, dict] = {}
+    try:
+        for r in get_conn().execute(
+            "SELECT job_id, started_at, finished_at, status, error FROM scheduler_job_run "
+            "WHERE id IN (SELECT MAX(id) FROM scheduler_job_run GROUP BY job_id)"
+        ).fetchall():
+            dur = None
+            if r["finished_at"] and r["started_at"]:
+                dur = int((float(r["finished_at"]) - float(r["started_at"])) * 1000)
+            last_runs[r["job_id"]] = {
+                "last_run_at": r["started_at"],
+                "last_status": r["status"],
+                "last_error": r["error"],
+                "last_duration_ms": dur,
+            }
+    except Exception:
+        pass
     if s is not None:
         try:
             for j in s.get_jobs():
@@ -533,6 +675,7 @@ def status() -> dict:
                     "next_run_time": nrt_iso,
                     "trigger": str(getattr(j, "trigger", "")),
                 }
+                entry.update(last_runs.get(j.id, {}))
                 if str(j.id or "").startswith("saved_search_"):
                     try:
                         sid = int(str(j.id).rsplit("_", 1)[1])
@@ -593,7 +736,7 @@ def register_audit_retention() -> bool:
         return False
     try:
         s.add_job(
-            run_audit_retention,
+            functools.partial(_record_run, _AUDIT_RETENTION_JOB_ID, run_audit_retention),
             CronTrigger(hour=3, minute=30, timezone="UTC"),
             id=_AUDIT_RETENTION_JOB_ID,
             replace_existing=True,
@@ -656,7 +799,7 @@ def register_email_calendar_retention() -> bool:
         return False
     try:
         s.add_job(
-            run_email_calendar_retention,
+            functools.partial(_record_run, _EMAIL_CAL_RETENTION_JOB_ID, run_email_calendar_retention),
             CronTrigger(hour=4, minute=0, timezone="UTC"),
             id=_EMAIL_CAL_RETENTION_JOB_ID,
             replace_existing=True,
@@ -752,7 +895,7 @@ def register_deadline_reminders() -> bool:
         return False
     try:
         s.add_job(
-            run_deadline_reminders,
+            functools.partial(_record_run, _DEADLINE_JOB_ID, run_deadline_reminders),
             IntervalTrigger(hours=6),
             id=_DEADLINE_JOB_ID,
             replace_existing=True,
@@ -808,7 +951,7 @@ def register_db_maintenance() -> bool:
         return False
     try:
         s.add_job(
-            run_db_maintenance,
+            functools.partial(_record_run, _DB_MAINTENANCE_JOB_ID, run_db_maintenance),
             CronTrigger(hour=4, minute=30, timezone="UTC"),
             id=_DB_MAINTENANCE_JOB_ID,
             replace_existing=True,

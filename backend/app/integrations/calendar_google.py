@@ -121,8 +121,29 @@ def list_availability(start_iso: str, end_iso: str) -> list[dict]:
         return [{"detail": f"error: {type(exc).__name__}: {exc}"}]
 
 
-def find_slots(window_days: int = 7, slot_minutes: int = 30, work_hours: tuple[int, int] = (9, 17)) -> list[str]:
-    """Suggest interview slots within window. Returns ISO strings (slot starts)."""
+def _tzinfo(tz: str | None):
+    """Resolve an IANA tz name to tzinfo, falling back to UTC. The work-hour
+    window is meaningful in the USER's local time, not the server's UTC."""
+    if not tz or str(tz).upper() == "UTC":
+        return timezone.utc
+    try:
+        from zoneinfo import ZoneInfo
+        return ZoneInfo(str(tz))
+    except Exception:
+        return timezone.utc
+
+
+def find_slots(window_days: int = 7, slot_minutes: int = 30,
+               work_hours: tuple[int, int] = (9, 17), tz: str | None = None) -> list[str]:
+    """Suggest interview slots within window. Returns ISO strings (slot
+    starts, UTC). Work-hours + weekday are evaluated in the user's timezone
+    `tz` (IANA name) so 9-17 means 9-17 *local*, not UTC."""
+    zone = _tzinfo(tz)
+
+    def _in_window(cursor_utc) -> bool:
+        local = cursor_utc.astimezone(zone)
+        return local.weekday() < 5 and work_hours[0] <= local.hour < work_hours[1]
+
     now = datetime.now(timezone.utc)
     start_dt = now + timedelta(hours=1)
     end_dt = now + timedelta(days=int(window_days))
@@ -133,7 +154,7 @@ def find_slots(window_days: int = 7, slot_minutes: int = 30, work_hours: tuple[i
         out: list[str] = []
         cursor = start_dt.replace(minute=0, second=0, microsecond=0)
         while cursor < end_dt and len(out) < 20:
-            if cursor.weekday() < 5 and work_hours[0] <= cursor.hour < work_hours[1]:
+            if _in_window(cursor):
                 out.append(_iso(cursor))
             cursor += timedelta(minutes=int(slot_minutes))
         return out
@@ -146,7 +167,7 @@ def find_slots(window_days: int = 7, slot_minutes: int = 30, work_hours: tuple[i
         if cursor < bs:
             cursor += timedelta(hours=1)
         while cursor + timedelta(minutes=int(slot_minutes)) <= be:
-            if cursor.weekday() < 5 and work_hours[0] <= cursor.hour < work_hours[1]:
+            if _in_window(cursor):
                 slots.append(_iso(cursor))
                 if len(slots) >= 20:
                     return slots
