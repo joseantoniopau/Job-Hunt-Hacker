@@ -11,7 +11,10 @@ from fastapi.testclient import TestClient
 
 from backend.app.main import app
 
-client = TestClient(app)
+# raise_server_exceptions=False so a genuine 500 comes back as the response
+# our global handler produced (which is what we want to inspect), instead of
+# the TestClient re-raising the underlying exception.
+client = TestClient(app, raise_server_exceptions=False)
 
 # Endpoints with side effects or external calls we don't want in a smoke pass.
 _SKIP_PATHS = {
@@ -19,6 +22,9 @@ _SKIP_PATHS = {
     "/api/data/export.zip",
     "/metrics",                  # prometheus text, may be heavy
 }
+# Test-only routes other test modules inject onto the shared app (e.g. the
+# error-sanitization fixture's deliberate-crash route). Never product surface.
+_SKIP_PREFIXES = ("/api/_test",)
 
 
 def _parameterless_get_paths():
@@ -31,6 +37,8 @@ def _parameterless_get_paths():
         if "{" in path:           # needs a path param
             continue
         if path in _SKIP_PATHS:
+            continue
+        if path.startswith(_SKIP_PREFIXES):
             continue
         if not path.startswith(("/api", "/")):
             continue
