@@ -50,6 +50,59 @@ def test_parse_extracts_experience_blocks():
     assert any("beta" in c for c in companies)
 
 
+def test_parse_title_date_bullets_layout_keeps_date_out_of_company():
+    """Title/Date/Bullets layout (no company line): the date line must not
+    be classified as the company name."""
+    text = (
+        "Jane Smith\n"
+        "janesmith@example.com\n"
+        "\n"
+        "EXPERIENCE\n"
+        "Senior Engineer\n"
+        "Jan 2020 - Present\n"
+        "- Built things\n"
+        "- Did stuff\n"
+        "\n"
+        "Software Engineer\n"
+        "Mar 2015 - Dec 2019\n"
+        "- Other things\n"
+    )
+    out = parse(text)
+    exp = out.get("experience") or []
+    assert len(exp) == 2
+
+    first, second = exp[0], exp[1]
+    assert first["title"] == "Senior Engineer"
+    assert first["company"] == ""
+    assert first["dates"] == "Jan 2020 - Present"
+    assert first["bullets"] == ["Built things", "Did stuff"]
+
+    assert second["title"] == "Software Engineer"
+    assert second["company"] == ""
+    assert second["dates"] == "Mar 2015 - Dec 2019"
+
+
+def test_parse_title_company_date_layout_still_gets_company():
+    """The classic Title/Company/Date layout keeps working: the company line
+    is preserved and the pure date line is still excluded everywhere."""
+    text = (
+        "Jane Smith\n"
+        "janesmith@example.com\n"
+        "\n"
+        "EXPERIENCE\n"
+        "Senior Engineer\n"
+        "Acme Corp\n"
+        "Jan 2020 - Present\n"
+        "- Built things\n"
+    )
+    out = parse(text)
+    exp = out.get("experience") or []
+    assert len(exp) == 1
+    assert exp[0]["title"] == "Senior Engineer"
+    assert exp[0]["company"] == "Acme Corp"
+    assert exp[0]["dates"] == "Jan 2020 - Present"
+
+
 def test_parse_skills_section():
     text = (
         "John Doe\n"

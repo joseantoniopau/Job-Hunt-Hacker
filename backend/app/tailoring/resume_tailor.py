@@ -113,6 +113,39 @@ def _fallback_analyze_job(job: dict, claims: list[dict]) -> dict:
     }
 
 
+def _unsupported_keywords(keyword_matrix: list[dict]) -> tuple[list[str], list[str]]:
+    """Derive (required_unsupported, all_unsupported) from the keyword matrix.
+
+    Handles both matrix shapes: full ``ats_analyzer.analyze_job`` entries
+    carry ``support_status`` + ``importance``; the lightweight fallback
+    entries only carry ``resume_safe``. A keyword counts as unsupported when
+    its support_status is 'unsupported' or 'weak_evidence' (fallback shape:
+    when resume_safe is falsy). Entries without an importance label are
+    treated as required so the honesty report errs on the side of disclosure.
+    """
+    required: list[str] = []
+    everything: list[str] = []
+    seen: set[str] = set()
+    for entry in keyword_matrix or []:
+        if not isinstance(entry, dict):
+            continue
+        kw = (entry.get("keyword") or entry.get("term") or "").strip()
+        if not kw or kw.lower() in seen:
+            continue
+        status = entry.get("support_status")
+        if status is not None:
+            unbacked = status in ("unsupported", "weak_evidence")
+        else:
+            unbacked = not entry.get("resume_safe")
+        if not unbacked:
+            continue
+        seen.add(kw.lower())
+        everything.append(kw)
+        if (entry.get("importance") or "required") == "required":
+            required.append(kw)
+    return required, everything
+
+
 # ---------- resume style profiles ----------
 
 _STYLES: dict[str, dict[str, Any]] = {
@@ -416,20 +449,27 @@ def tailor_resume(
         (cleaned.get("keywords_excluded_as_unsupported") or []) + unsafe_kw
     ))
 
-    # Missing evidence / unsupported job requirements
-    unsupported_reqs: list[str] = []
-    if isinstance(ats_report, dict):
-        unsupported_reqs = list(ats_report.get("missing_keywords") or [])
+    # Missing evidence / unsupported job requirements — derived from the
+    # keyword matrix itself (analyze_job reports support_status per keyword;
+    # the fallback reports resume_safe), so the honesty report always sees
+    # the keywords the vault can't back.
+    unsupported_reqs, missing_evidence = _unsupported_keywords(keyword_matrix)
+
+    gaps = list(cleaned.get("gaps") or [])
+    for kw in unsupported_reqs[:8]:
+        gap = f"No vault evidence for required job keyword: {kw}"
+        if gap not in gaps:
+            gaps.append(gap)
 
     honesty = build_report(
         provenance=pm,
         keyword_matrix=keyword_matrix,
-        gaps_flagged=cleaned.get("gaps") or [],
+        gaps_flagged=gaps,
         dropped_segments=dropped,
         keywords_added=cleaned.get("keywords_used") or [],
         keywords_excluded_as_unsupported=cleaned.get("keywords_excluded_as_unsupported") or [],
         unsupported_job_requirements=unsupported_reqs,
-        missing_evidence=unsupported_reqs,
+        missing_evidence=missing_evidence,
     )
 
     # Render markdown + plain text

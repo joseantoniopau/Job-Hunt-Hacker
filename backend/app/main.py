@@ -5,14 +5,16 @@ from __future__ import annotations
 
 import logging
 import traceback
+import uuid
 from pathlib import Path
 
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse, FileResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from .config import APP_VERSION, settings
 from .db import init_db, audit
@@ -186,7 +188,44 @@ def app_js() -> FileResponse:
 # found" gets clobbered by the generic "not found: /api/jobs/999" message.
 @app.exception_handler(404)
 async def not_found(request, exc):  # type: ignore[no-untyped-def]
+    request_id = getattr(request.state, "request_id", None)
     detail = getattr(exc, "detail", None)
     if detail and str(detail).strip().lower() not in ("not found", ""):
-        return JSONResponse(status_code=404, content={"ok": False, "detail": str(detail)})
-    return JSONResponse(status_code=404, content={"ok": False, "detail": f"not found: {request.url.path}"})
+        return JSONResponse(status_code=404,
+                            content={"ok": False, "detail": str(detail), "request_id": request_id})
+    return JSONResponse(status_code=404,
+                        content={"ok": False, "detail": f"not found: {request.url.path}",
+                                 "request_id": request_id})
+
+
+# Normalize every other HTTPException (400/415/422/500/502/...) to the same
+# envelope: {ok, detail, request_id}. Status codes pass through untouched —
+# 404 keeps its dedicated handler above (status handlers win for that code).
+@app.exception_handler(StarletteHTTPException)
+async def http_exception(request: Request, exc: StarletteHTTPException) -> JSONResponse:
+    detail = exc.detail if exc.detail is not None else "error"
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"ok": False, "detail": str(detail),
+                 "request_id": getattr(request.state, "request_id", None)},
+        headers=getattr(exc, "headers", None),
+    )
+
+
+# Last-resort safety net: never leak raw exception text or tracebacks to the
+# client. The full traceback goes to the server log under a short error_id so
+# the operator can correlate a client report with the exact log entry.
+@app.exception_handler(Exception)
+async def unhandled_exception(request: Request, exc: Exception) -> JSONResponse:
+    error_id = uuid.uuid4().hex[:12]
+    request_id = getattr(request.state, "request_id", None)
+    log.warning(
+        "unhandled exception error_id=%s request_id=%s %s %s\n%s",
+        error_id, request_id, request.method, request.url.path,
+        "".join(traceback.format_exception(type(exc), exc, exc.__traceback__)),
+    )
+    return JSONResponse(
+        status_code=500,
+        content={"ok": False, "detail": "internal error",
+                 "error_id": error_id, "request_id": request_id},
+    )

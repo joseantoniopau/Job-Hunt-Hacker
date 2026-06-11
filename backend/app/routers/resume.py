@@ -58,7 +58,8 @@ async def upload_resume(
     try:
         dest.write_bytes(raw)
     except Exception as e:  # noqa: BLE001
-        raise HTTPException(500, f"could not save upload: {e}")
+        log.warning("could not save upload: %s", e)
+        raise HTTPException(500, "could not save upload (see server log)")
 
     # Parse
     try:
@@ -108,7 +109,7 @@ async def upload_resume(
             evidence_info = {"source_id": source_id, "claims_extracted": 0, "deduped": True}
     except Exception as e:  # noqa: BLE001
         log.warning("evidence ingestion from resume failed: %s", e)
-        evidence_info = {"error": str(e)}
+        evidence_info = {"error": "evidence ingestion failed (see server log)"}
 
     audit("resume_uploaded", "resume_document", new_id, filename=safe_name, is_master=is_master)
     return {"ok": True, "data": {
@@ -209,7 +210,7 @@ def tailor(request: Request, body: ResumeTailorRequest) -> dict:
         raise HTTPException(404, str(e))
     except Exception as e:  # noqa: BLE001
         log.warning("tailor failed: %s", e)
-        raise HTTPException(500, f"tailor failed: {e}")
+        raise HTTPException(500, "tailor failed (see server log)")
     # Strip None pdf_path so callers can detect absence cleanly.
     if not result.get("pdf_path"):
         result.pop("pdf_path", None)

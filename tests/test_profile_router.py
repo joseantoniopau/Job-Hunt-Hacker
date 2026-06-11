@@ -37,6 +37,63 @@ def test_put_profile_persists_lists():
     assert titles[1] in got
 
 
+def test_put_profile_multi_field_atomic():
+    """The PUT writes several columns in one statement inside tx() — all
+    supplied fields must land together and survive a read-back."""
+    tag = f"_t{int(time.time() * 1000)}"
+    payload = {
+        "name": f"Atomic Tester{tag}",
+        "email": f"atomic{tag}@example.com",
+        "target_keywords": [f"Python{tag}", f"SQLite{tag}"],
+        "minimum_salary": 123456,
+    }
+    r = client.put("/api/profile", json=payload)
+    assert r.status_code == 200
+    assert r.json().get("ok") is True
+
+    got = (client.get("/api/profile").json().get("data")) or {}
+    assert got.get("name") == payload["name"]
+    assert got.get("email") == payload["email"]
+    assert got.get("minimum_salary") == 123456
+    kws = got.get("target_keywords") or []
+    assert payload["target_keywords"][0] in kws
+    assert payload["target_keywords"][1] in kws
+    assert got.get("updated_at")
+
+
+def test_vault_quick_update_writes_profile_url(monkeypatch):
+    """POST /api/vault/quick-update with a URL must persist the URL onto
+    the singleton profile (atomic tx path) and report the field updated."""
+    from backend.app.services import url_ingestion
+
+    def fake_fetch(url):
+        return {
+            "url": url,
+            "title": "Fake GitHub Profile",
+            "text": "Built jhh-tools, a Python CLI for job hunting automation. "
+                    "Maintained since 2023 with tests and CI.",
+            "content_type": "text/html",
+            "fetched_at": time.time(),
+        }
+
+    monkeypatch.setattr(url_ingestion, "fetch_url", fake_fetch)
+
+    gh = f"https://github.com/atomic-tester-{int(time.time() * 1000)}"
+    r = client.post("/api/vault/quick-update", json={"github_url": gh})
+    assert r.status_code == 200
+    body = r.json()
+    assert body.get("ok") is True
+    data = body.get("data") or {}
+    assert "github_url" in (data.get("profile_fields_updated") or [])
+    assert (data.get("profile") or {}).get("github_url") == gh
+    touched = data.get("touched") or []
+    assert any(t.get("kind") == "github" and t.get("ok") for t in touched)
+
+    # Read-back through the profile router confirms the write committed.
+    got = (client.get("/api/profile").json().get("data")) or {}
+    assert got.get("github_url") == gh
+
+
 def test_infer_returns_empty_when_nothing_supplied():
     r = client.post("/api/profile/infer")
     assert r.status_code == 200

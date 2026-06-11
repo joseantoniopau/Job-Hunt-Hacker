@@ -367,11 +367,11 @@ def _span_in_text(span: str, source_text: str) -> bool:
     """
     if not span or not source_text:
         return False
-    # Must be long enough that we don't accept "the" as evidence for
-    # everything; 6 characters keeps short skill tags ("python", "kafka")
-    # while rejecting filler.
+    # Must be long enough that we don't accept "a" or "we" as evidence for
+    # everything; 3 characters keeps short skill tags ("aws", "sql", "c++")
+    # while still rejecting 1-2 char filler.
     cleaned = span.strip()
-    if len(cleaned) < 6:
+    if len(cleaned) < 3:
         return False
     return _norm_for_match(cleaned) in _norm_for_match(source_text)
 

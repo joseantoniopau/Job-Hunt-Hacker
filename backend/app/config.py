@@ -1,9 +1,13 @@
 """Central config. Reads .env once; everything else imports `settings`."""
 from __future__ import annotations
 
+import logging
 import os
+import stat
 from dataclasses import dataclass, field
 from pathlib import Path
+
+log = logging.getLogger("jhh.config")
 
 ROOT = Path(__file__).resolve().parents[2]
 ENV_FILE = ROOT / ".env"
@@ -17,6 +21,17 @@ APP_VERSION = "0.4.0"
 def _load_env_file() -> None:
     if not ENV_FILE.exists():
         return
+    # .env holds API keys — it must never be group/world readable.
+    try:
+        mode = stat.S_IMODE(ENV_FILE.stat().st_mode)
+        if mode & 0o077:
+            os.chmod(ENV_FILE, stat.S_IRUSR | stat.S_IWUSR)
+            log.warning(
+                ".env at %s had permissive mode %s; tightened to 0600",
+                ENV_FILE, oct(mode),
+            )
+    except OSError as exc:
+        log.warning("could not check/tighten .env permissions: %s", exc)
     for raw in ENV_FILE.read_text().splitlines():
         line = raw.strip()
         if not line or line.startswith("#"):

@@ -226,5 +226,6 @@ def rescore(body: RescoreRequest) -> dict:
             scorer.score_job(int(jid))
             scored.append(int(jid))
         except Exception as exc:  # noqa: BLE001
-            errors[int(jid)] = f"{type(exc).__name__}: {exc}"
+            log.warning("rescore failed for job %s: %s", jid, exc)
+            errors[int(jid)] = f"{type(exc).__name__} (see server log)"
     return {"ok": True, "data": {"scored": scored, "errors": errors}}

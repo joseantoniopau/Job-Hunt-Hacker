@@ -26,7 +26,7 @@ def recruiter_message(body: RecruiterMessageRequest) -> dict:
         raise HTTPException(404, str(e))
     except Exception as e:  # noqa: BLE001
         log.warning("recruiter message failed: %s", e)
-        raise HTTPException(500, f"recruiter message failed: {e}")
+        raise HTTPException(500, "recruiter message failed (see server log)")
     return {"ok": True, "data": result}
 
 
@@ -38,5 +38,5 @@ def interview_prep_route(body: InterviewPrepRequest) -> dict:
         raise HTTPException(404, str(e))
     except Exception as e:  # noqa: BLE001
         log.warning("interview prep failed: %s", e)
-        raise HTTPException(500, f"interview prep failed: {e}")
+        raise HTTPException(500, "interview prep failed (see server log)")
     return {"ok": True, "data": result}

@@ -5,14 +5,18 @@ import logging
 import time
 from typing import Optional
 
+import httpx
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 
 from ..db import audit, get_conn, row_to_dict, tx
 from ..integrations import gmail, imap
+from ..security import oauth_tokens
 
 log = logging.getLogger("jhh.routers.email")
+
+GOOGLE_REVOKE_URL = "https://oauth2.googleapis.com/revoke"
 
 router = APIRouter(prefix="", tags=["email"])
 
@@ -128,6 +132,31 @@ def draft_reply(body: DraftReplyBody) -> dict:
 
 
 # ---- OAuth ----
+
+@router.delete("/api/email/disconnect")
+def disconnect() -> dict:
+    """Disconnect Google: best-effort revoke the token at Google, then wipe
+    the local token store. Revocation failures are logged, never raised —
+    the local files are removed regardless.
+    """
+    tokens = oauth_tokens.load_tokens()
+    revoked = False
+    tok = tokens.get("refresh_token") or tokens.get("access_token")
+    if tok:
+        try:
+            r = httpx.post(GOOGLE_REVOKE_URL, data={"token": tok}, timeout=5)
+            revoked = r.status_code == 200
+            if not revoked:
+                log.warning("google token revoke returned HTTP %s", r.status_code)
+        except Exception as exc:  # noqa: BLE001
+            # never log the token itself; the exception type is enough
+            log.warning("google token revoke failed: %s", type(exc).__name__)
+    files_removed = oauth_tokens.clear_tokens()
+    audit("email_disconnect", "oauth_tokens", None,
+          revoked=revoked, files_removed=files_removed,
+          had_tokens=bool(tokens))
+    return {"ok": True, "data": {"revoked": revoked, "files_removed": files_removed}}
+
 
 @router.get("/oauth/google/start")
 def oauth_start():

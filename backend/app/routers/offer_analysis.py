@@ -426,7 +426,8 @@ def analyze(body: AnalyzeBody) -> dict:
     try:
         provider = get_llm()
     except Exception as exc:  # noqa: BLE001
-        raise HTTPException(500, f"LLM provider init failed: {exc}")
+        log.warning("LLM provider init failed: %s", exc)
+        raise HTTPException(500, "LLM provider init failed (see server log)")
 
     try:
         output, run_id = observed_complete(
@@ -441,7 +442,7 @@ def analyze(body: AnalyzeBody) -> dict:
         )
     except Exception as exc:  # noqa: BLE001
         log.exception("offer analysis LLM call failed")
-        raise HTTPException(500, f"LLM call failed: {exc}")
+        raise HTTPException(500, "LLM call failed (see server log)")
 
     parsed = extract_json(output or "") or {}
     if not isinstance(parsed, dict):
@@ -556,7 +557,8 @@ def compare(body: CompareBody) -> dict:
     try:
         provider = get_llm()
     except Exception as exc:  # noqa: BLE001
-        raise HTTPException(500, f"LLM provider init failed: {exc}")
+        log.warning("LLM provider init failed: %s", exc)
+        raise HTTPException(500, "LLM provider init failed (see server log)")
 
     try:
         output, run_id = observed_complete(
@@ -571,7 +573,7 @@ def compare(body: CompareBody) -> dict:
         )
     except Exception as exc:  # noqa: BLE001
         log.exception("offer compare LLM call failed")
-        raise HTTPException(500, f"LLM call failed: {exc}")
+        raise HTTPException(500, "LLM call failed (see server log)")
 
     parsed = extract_json(output or "") or {}
     if not isinstance(parsed, dict):

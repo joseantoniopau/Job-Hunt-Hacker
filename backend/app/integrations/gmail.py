@@ -19,7 +19,7 @@ import httpx
 
 from ..config import settings
 from ..db import audit, get_conn, row_to_dict, tx
-from . import oauth_tokens
+from ..security import oauth_tokens
 
 log = logging.getLogger("jhh.integrations.gmail")
 
@@ -83,6 +83,26 @@ def is_configured() -> bool:
 
 # --------------- OAuth ---------------
 
+# Never let token material reach the logs: redact Bearer headers and
+# access_token / refresh_token / id_token values (both literal values we
+# hold and key=value / "key": "value" shapes inside exception text).
+_BEARER_RE = re.compile(r"Bearer\s+[A-Za-z0-9\-._~+/=]+")
+_TOKEN_FIELD_RE = re.compile(
+    r"((?:access|refresh|id)_token[\"']?\s*[:=]\s*[\"']?)[A-Za-z0-9\-._~+/=]+"
+)
+
+
+def _sanitize_token_text(text: str, tokens: dict | None = None) -> str:
+    out = text or ""
+    for key in ("access_token", "refresh_token", "id_token"):
+        val = (tokens or {}).get(key)
+        if isinstance(val, str) and val:
+            out = out.replace(val, "[REDACTED]")
+    out = _BEARER_RE.sub("Bearer [REDACTED]", out)
+    out = _TOKEN_FIELD_RE.sub(r"\1[REDACTED]", out)
+    return out
+
+
 def oauth_url(state: str = "") -> str:
     if not is_configured():
         return "(gmail not configured)"
@@ -102,6 +122,7 @@ def oauth_url(state: str = "") -> str:
 def exchange_code(code: str) -> dict:
     if not is_configured():
         return {"ok": False, "detail": "(gmail not configured)"}
+    tokens: dict = {}
     try:
         r = httpx.post(
             TOKEN_URL,
@@ -125,8 +146,9 @@ def exchange_code(code: str) -> dict:
             pass
         return {"ok": True, "scope": tokens.get("scope")}
     except Exception as exc:  # noqa: BLE001
-        log.warning("oauth exchange failed: %s", exc)
-        return {"ok": False, "detail": f"{type(exc).__name__}: {exc}"}
+        detail = _sanitize_token_text(f"{type(exc).__name__}: {exc}", tokens)
+        log.warning("oauth exchange failed: %s", detail)
+        return {"ok": False, "detail": detail}
 
 
 def _refresh_if_needed(tokens: dict) -> dict:
@@ -157,7 +179,10 @@ def _refresh_if_needed(tokens: dict) -> dict:
         oauth_tokens.save_tokens(tokens)
         return tokens
     except Exception as exc:  # noqa: BLE001
-        log.warning("token refresh failed: %s", exc)
+        log.warning(
+            "token refresh failed: %s",
+            _sanitize_token_text(f"{type(exc).__name__}: {exc}", tokens),
+        )
         return tokens
 
 

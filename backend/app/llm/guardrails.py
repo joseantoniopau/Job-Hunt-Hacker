@@ -125,11 +125,10 @@ def validate_provenance(output: dict, evidence_ids_allowed: set[int] | Iterable[
             # Boilerplate paragraphs (greetings, closings) make no career
             # claim and are explicitly tagged kind="boilerplate" by the
             # caller. They don't need evidence_ids and are always kept.
-            # Edge paragraphs (idx 0 / last) are also soft-exempt when the
-            # LLM forgot to tag them.
+            # Everything else — including first/last paragraphs — must cite
+            # valid evidence or be dropped: position is not provenance.
             is_boilerplate = (para.get("kind") == "boilerplate")
-            is_edge = (p_idx == 0 or p_idx == len(out["paragraphs"]) - 1)
-            if not clean and not (is_boilerplate or is_edge):
+            if not clean and not is_boilerplate:
                 dropped.append({
                     "where": f"paragraphs[{p_idx}]",
                     "text": (para.get("text") or "")[:240],

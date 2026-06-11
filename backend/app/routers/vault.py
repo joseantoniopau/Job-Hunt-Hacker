@@ -14,7 +14,7 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from ..db import audit, get_conn, row_to_dict
+from ..db import audit, get_conn, row_to_dict, tx
 from ..models.schemas import ClaimUpdate, OK
 from ..services import (
     career_vault,
@@ -336,8 +336,9 @@ def quick_update(body: QuickUpdateRequest) -> dict:
         cols.append("updated_at = ?")
         vals.append(time.time())
         sql = f"UPDATE user_profile SET {', '.join(cols)} WHERE id = 1"
-        conn = get_conn()
-        conn.execute(sql, vals)
+        # Autocommit connection — make the multi-column profile write atomic.
+        with tx() as c:
+            c.execute(sql, vals)
         profile_fields_updated = sorted(profile_updates.keys())
         audit("profile_update", "user_profile", 1,
               fields=profile_fields_updated, source="vault_quick_update")

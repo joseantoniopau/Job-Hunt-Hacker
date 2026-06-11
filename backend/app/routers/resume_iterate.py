@@ -42,7 +42,7 @@ def iterate_bullet_route(resume_id: int, body: ResumeIterateRequest) -> dict:
         )
     except Exception as e:  # noqa: BLE001
         log.warning("resume iterate failed: %s", e)
-        raise HTTPException(500, f"resume iterate failed: {e}")
+        raise HTTPException(500, "resume iterate failed (see server log)")
     if not result.get("ok"):
         # 404 if the row doesn't exist; 422 otherwise (bad index / no prov)
         detail = result.get("detail") or "iterate failed"
@@ -64,7 +64,7 @@ def accept_iteration_route(resume_id: int, body: ResumeIterateAcceptRequest) -> 
         )
     except Exception as e:  # noqa: BLE001
         log.warning("resume accept-iteration failed: %s", e)
-        raise HTTPException(500, f"resume accept-iteration failed: {e}")
+        raise HTTPException(500, "resume accept-iteration failed (see server log)")
     if not result.get("ok"):
         detail = result.get("detail") or "accept failed"
         if "not found" in detail:

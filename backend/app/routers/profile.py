@@ -163,7 +163,10 @@ def put_profile(body: UserProfileIn) -> OK:
     cols.append("updated_at = ?")
     vals.append(time.time())
     sql = f"UPDATE user_profile SET {', '.join(cols)} WHERE id = 1"
-    conn.execute(sql, vals)
+    # The connection is autocommit — wrap the multi-column profile write in
+    # an explicit transaction so it lands atomically under concurrency.
+    with tx() as c:
+        c.execute(sql, vals)
     audit("profile_update", "user_profile", 1, fields=sorted(payload.keys()))
 
     # ----- Always-on URL ingest -----------------------------------------

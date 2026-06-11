@@ -149,14 +149,123 @@ WIPE_TABLES: list[str] = [
 
 # ---------- EXPORT ----------
 
-def _build_export_bundle() -> tuple[dict[str, Any], dict[str, int]]:
+# Substituted for free-text PII fields when redaction is requested.
+_REDACTED = "[redacted]"
+# Loose email matcher used to find addresses inside composite strings like
+# "Jane Recruiter <jane@corp.com>".
+_EMAIL_ADDR_RE = re.compile(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}")
+
+
+def _mask_email(value: Any) -> Any:
+    """Mask an email address: first char of the local part + *** + @domain.
+    Composite strings ("Name <addr@x.com>") collapse to just the masked
+    address so the display name is not leaked either. Non-strings and
+    empties pass through unchanged."""
+    if not value or not isinstance(value, str):
+        return value
+    m = _EMAIL_ADDR_RE.search(value)
+    if m:
+        local, _, domain = m.group(0).partition("@")
+        return f"{local[0]}***@{domain}"
+    s = value.strip()
+    return f"{s[0]}***" if s else value
+
+
+def _mask_phone(value: Any) -> Any:
+    """Mask a phone number, keeping only the last 2 digits."""
+    if not value or not isinstance(value, str):
+        return value
+    digits = re.sub(r"\D", "", value)
+    if not digits:
+        return "***"
+    return "***" + digits[-2:]
+
+
+def _mask_name(value: Any) -> Any:
+    """Mask a person name: first name + last-name initial ("Jane D.")."""
+    if not value or not isinstance(value, str):
+        return value
+    parts = value.split()
+    if not parts:
+        return value
+    if len(parts) == 1:
+        return parts[0]
+    return f"{parts[0]} {parts[1][0]}."
+
+
+def _mask_attendees(attendees: Any) -> Any:
+    """Mask attendee emails. Attendees may be plain email strings or
+    Google-style dicts ({"email": ...}). Anything else passes through."""
+    if not isinstance(attendees, list):
+        return attendees
+    out: list[Any] = []
+    for a in attendees:
+        if isinstance(a, str):
+            out.append(_mask_email(a))
+        elif isinstance(a, dict):
+            b = dict(a)
+            if b.get("email"):
+                b["email"] = _mask_email(b["email"])
+            out.append(b)
+        else:
+            out.append(a)
+    return out
+
+
+def _redact_row(table: str, row: dict) -> dict:
+    """Return a redacted copy of an exported row for the given table.
+    Tables without PII rules pass through untouched (same object)."""
+    if table == "user_profile":
+        d = dict(row)
+        if d.get("email"):
+            d["email"] = _mask_email(d["email"])
+        if d.get("phone"):
+            d["phone"] = _mask_phone(d["phone"])
+        if d.get("name"):
+            d["name"] = _mask_name(d["name"])
+        return d
+    if table == "email_event":
+        d = dict(row)
+        if d.get("body_text"):
+            d["body_text"] = _REDACTED
+        if d.get("sender"):
+            d["sender"] = _mask_email(d["sender"])
+        return d
+    if table == "calendar_event":
+        d = dict(row)
+        # description / attendees live inside raw_json (Google Calendar
+        # response payload); the columns themselves carry no body text.
+        raw = d.get("raw_json")
+        if isinstance(raw, str) and raw.strip():
+            try:
+                obj = json.loads(raw)
+            except Exception:  # noqa: BLE001
+                obj = None
+            if isinstance(obj, dict):
+                if obj.get("description"):
+                    obj["description"] = _REDACTED
+                if "attendees" in obj:
+                    obj["attendees"] = _mask_attendees(obj["attendees"])
+                d["raw_json"] = json.dumps(obj, default=str)
+        # Schema-drift safety: redact column-level fields if they exist.
+        if d.get("description"):
+            d["description"] = _REDACTED
+        return d
+    return row
+
+
+def _build_export_bundle(redact_pii: bool = False) -> tuple[dict[str, Any], dict[str, int]]:
     """Materialize the full export bundle + per-table row counts. Pulled
-    out of `export_all` so snapshot creation can reuse it."""
+    out of `export_all` so snapshot creation can reuse it. When
+    `redact_pii` is true, PII fields (profile contact info, email bodies /
+    senders, calendar descriptions / attendees) are masked; the bundle
+    stays structurally import-compatible either way."""
     conn = get_conn()
     bundle: dict[str, Any] = {
         "version": EXPORT_VERSION,
         "app_version": APP_VERSION,
         "exported_at": datetime.now(timezone.utc).isoformat(),
+        "redacted": bool(redact_pii),
         "tables": {},
     }
     counts: dict[str, int] = {}
@@ -169,6 +278,8 @@ def _build_export_bundle() -> tuple[dict[str, Any], dict[str, int]]:
             counts[table] = 0
             continue
         dicts = [_row_for_export(r) for r in rows]
+        if redact_pii:
+            dicts = [_redact_row(table, d) for d in dicts]
         bundle["tables"][table] = dicts
         counts[table] = len(dicts)
     try:
@@ -184,9 +295,15 @@ def _build_export_bundle() -> tuple[dict[str, Any], dict[str, int]]:
 
 
 @router.get("/export")
-def export_all() -> Response:
-    bundle, counts = _build_export_bundle()
-    audit("data_export", "data", None, counts=counts)
+def export_all(
+    redact_pii: bool = Query(
+        default=False,
+        description="Mask PII (profile contact info, email bodies/senders, "
+                    "calendar descriptions/attendees) in the exported bundle.",
+    ),
+) -> Response:
+    bundle, counts = _build_export_bundle(redact_pii=redact_pii)
+    audit("data_export", "data", None, counts=counts, redacted=bool(redact_pii))
     body = json.dumps(bundle, default=str, indent=2)
     ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     return Response(

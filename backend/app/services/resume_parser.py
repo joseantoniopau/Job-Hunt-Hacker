@@ -150,6 +150,18 @@ def _extract_contacts(header_text: str, full_text: str) -> dict[str, Any]:
             "links": sorted(links)}
 
 
+def _is_date_line(line: str) -> bool:
+    """True when a line is just a date range plus separators / duration —
+    e.g. "Jan 2020 - Present" or "2018 – 2019 · 1 yr 2 mos". Such lines must
+    never be classified as a title or company name (Title/Date/Bullets
+    layouts have no company line at all)."""
+    s = (line or "").strip()
+    if not s or not DATE_RANGE_RE.search(s):
+        return False
+    rest = re.sub(r"[\s\-–—,|·().]+", " ", DATE_RANGE_RE.sub("", s)).strip()
+    return bool(re.fullmatch(r"(?:\d+\s*yrs?)?\s*(?:\d+\s*mos?)?", rest, re.I))
+
+
 def _parse_experience(block: str) -> list[dict[str, Any]]:
     """Split experience block into entries by blank lines or date-range anchors."""
     if not block:
@@ -167,12 +179,10 @@ def _parse_experience(block: str) -> list[dict[str, Any]]:
 
         # Find date range
         date_match = None
-        date_line_idx = None
-        for i, line in enumerate(lines):
+        for line in lines:
             m = DATE_RANGE_RE.search(line)
             if m:
                 date_match = m
-                date_line_idx = i
                 break
 
         dates = ""
@@ -191,22 +201,29 @@ def _parse_experience(block: str) -> list[dict[str, Any]]:
             else:
                 non_bullets.append(stripped)
 
-        title = non_bullets[0] if non_bullets else ""
-        company = non_bullets[1] if len(non_bullets) > 1 else ""
+        # Title/company/location only come from non-bullet lines that are
+        # NOT pure date ranges — in a Title/Date/Bullets layout the date
+        # line must never be mistaken for a company name.
+        info_lines = [l for l in non_bullets if not _is_date_line(l)]
+        title = info_lines[0] if info_lines else ""
+        company = info_lines[1] if len(info_lines) > 1 else ""
         location = ""
-        if len(non_bullets) > 2:
+        if len(info_lines) > 2:
             # location often contains comma or city/state
-            for cand in non_bullets[2:]:
+            for cand in info_lines[2:]:
                 if "," in cand or re.search(r"\b[A-Z]{2}\b", cand):
                     location = cand
                     break
 
-        # Drop dates from extracted lines
-        if date_match and date_line_idx is not None and date_line_idx < len(non_bullets):
-            cleaned = DATE_RANGE_RE.sub("", non_bullets[date_line_idx]).strip(" -,|")
-            if cleaned and non_bullets[date_line_idx] == title:
+        # Strip inline date ranges from mixed lines like
+        # "Senior Engineer  Jan 2020 - Present" so titles/companies stay clean.
+        if title and DATE_RANGE_RE.search(title):
+            cleaned = DATE_RANGE_RE.sub("", title).strip(" -–—,|·")
+            if cleaned:
                 title = cleaned
-            elif cleaned and non_bullets[date_line_idx] == company:
+        if company and DATE_RANGE_RE.search(company):
+            cleaned = DATE_RANGE_RE.sub("", company).strip(" -–—,|·")
+            if cleaned:
                 company = cleaned
 
         out.append({

@@ -18,8 +18,12 @@ log = logging.getLogger("jhh.tailoring.followup_emails")
 
 try:
     from ..llm import get_llm  # type: ignore
+    from ..llm.json_repair import extract_json  # type: ignore
+    from ..llm.observability import observed_complete  # type: ignore
 except Exception:  # pragma: no cover
     get_llm = None  # type: ignore
+    extract_json = None  # type: ignore
+    observed_complete = None  # type: ignore
 
 try:
     from .provenance import ProvenanceMap
@@ -257,13 +261,17 @@ _LLM_SYS = (
 
 
 def _llm_polish(stage: str, app: dict, profile: dict, claims: list[dict],
-                base: dict) -> Optional[dict]:
-    if get_llm is None:
-        return None
+                base: dict) -> tuple[Optional[dict], Optional[int]]:
+    """Run the followup-polish LLM call under observability.
+
+    Returns (polished_dict_or_None, llm_run_id). None means the call
+    failed or produced unusable output, so the caller keeps the template
+    draft; llm_run_id is None when no run row was recorded.
+    """
+    if get_llm is None or observed_complete is None or extract_json is None:
+        return None, None
     try:
         provider = get_llm()
-        if getattr(provider, "name", "") in ("", "template"):
-            return None
         evidence = [
             {"id": c.get("id"), "text": (c.get("claim_text") or "")[:200]}
             for c in claims if c.get("id")
@@ -277,13 +285,24 @@ def _llm_polish(stage: str, app: dict, profile: dict, claims: list[dict],
             "starter_subject": base["subject"],
             "starter_body": base["body"],
         })
-        out = provider.complete_json(_LLM_SYS, user, max_tokens=900, temperature=0.4) or {}
+        raw, run_id = observed_complete(
+            provider,
+            "followup_email",
+            _LLM_SYS,
+            user,
+            max_tokens=900,
+            temperature=0.4,
+            target_type="application",
+            target_id=int(app.get("id") or 0) or None,
+        )
+        llm_run_id = int(run_id) if run_id and run_id > 0 else None
+        out = extract_json(raw or "")
         if not isinstance(out, dict) or not out.get("body"):
-            return None
-        return out
+            return None, llm_run_id
+        return out, llm_run_id
     except Exception as e:
         log.warning("LLM followup polish failed: %s", e)
-        return None
+        return None, None
 
 
 def _filter_claim_ids(ids, allowed_ids: set[int]) -> list[int]:
@@ -322,7 +341,7 @@ def draft(application_id: int, stage: str) -> dict:
     final_body = base["body"]
     cited = base["claim_ids"]
 
-    polished = _llm_polish(stage_norm, app, profile, claims, base)
+    polished, llm_run_id = _llm_polish(stage_norm, app, profile, claims, base)
     if polished:
         subj = (polished.get("subject") or "").strip()
         body = (polished.get("body") or "").strip()
@@ -339,6 +358,7 @@ def draft(application_id: int, stage: str) -> dict:
         "application_id": int(application_id),
         "subject": final_subject,
         "body": final_body,
+        "llm_run_id": llm_run_id,
         "provenance": {
             "claim_ids": cited,
             "claims_available": len(allowed_ids),
@@ -353,6 +373,7 @@ def draft(application_id: int, stage: str) -> dict:
             int(application_id),
             stage=stage_norm,
             provider=used,
+            llm_run_id=llm_run_id,
         )
     except Exception:
         pass

@@ -282,7 +282,8 @@ def use_local(body: UseLocalRequest) -> dict:
         if r.status_code != 200:
             raise HTTPException(502, f"daemon returned HTTP {r.status_code}")
     except httpx.HTTPError as exc:
-        raise HTTPException(502, f"could not reach daemon at {base_url}: {exc}") from exc
+        log.warning("could not reach daemon at %s: %s", base_url, exc)
+        raise HTTPException(502, f"could not reach daemon at {base_url} (see server log)") from exc
 
     updates: dict[str, str] = {
         "JHH_LLM_PROVIDER": "ollama" if kind == "ollama" else "openai",
@@ -369,7 +370,8 @@ def test_active_provider() -> dict:
     try:
         provider = get_llm()
     except Exception as exc:
-        return {"ok": False, "error": f"provider init failed: {exc}",
+        log.warning("llm test: provider init failed: %s", exc)
+        return {"ok": False, "error": "provider init failed (see server log)",
                 "data": {"provider": settings.llm_provider}}
 
     if getattr(provider, "name", "") == "template":
@@ -400,10 +402,11 @@ def test_active_provider() -> dict:
             },
         }
     except Exception as exc:
+        log.warning("llm test: provider call failed: %s", exc)
         elapsed_ms = int((time.time() - started) * 1000)
         return {
             "ok": False,
-            "error": str(exc),
+            "error": "provider call failed (see server log)",
             "data": {
                 "provider": getattr(provider, "name", settings.llm_provider),
                 "model": settings.llm_model or "(default)",

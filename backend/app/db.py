@@ -229,6 +229,7 @@ SCHEMA = [
     """CREATE INDEX IF NOT EXISTS idx_job_source ON job_posting(source)""",
     """CREATE INDEX IF NOT EXISTS idx_job_company ON job_posting(company)""",
     """CREATE INDEX IF NOT EXISTS idx_job_status ON job_posting(status)""",
+    """CREATE INDEX IF NOT EXISTS idx_job_posted_at ON job_posting(posted_at DESC)""",
 
     """CREATE TABLE IF NOT EXISTS job_match (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -346,6 +347,8 @@ SCHEMA = [
         query_json TEXT NOT NULL,
         frequency_hours INTEGER DEFAULT 24,
         last_run_at REAL,
+        last_error TEXT,
+        last_error_ts REAL,
         enabled INTEGER DEFAULT 1,
         created_at REAL
     )""",
@@ -369,6 +372,9 @@ SCHEMA = [
     """CREATE INDEX IF NOT EXISTS idx_gap_event_keyword ON gap_event(missing_keyword)""",
     """CREATE INDEX IF NOT EXISTS idx_gap_event_job ON gap_event(job_id)""",
 
+    # NOTE: the resume_id FK only applies to FRESH databases — `IF NOT
+    # EXISTS` leaves existing tables untouched (no rebuild), so DBs created
+    # before this FK keep working with the plain resume_id column.
     """CREATE TABLE IF NOT EXISTS effectiveness_event (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         ts REAL NOT NULL,
@@ -376,10 +382,12 @@ SCHEMA = [
         resume_id INTEGER,
         outcome TEXT NOT NULL,
         notes TEXT,
-        FOREIGN KEY (application_id) REFERENCES application(id) ON DELETE CASCADE
+        FOREIGN KEY (application_id) REFERENCES application(id) ON DELETE CASCADE,
+        FOREIGN KEY (resume_id) REFERENCES tailored_resume(id) ON DELETE SET NULL
     )""",
     """CREATE INDEX IF NOT EXISTS idx_eff_event_ts ON effectiveness_event(ts)""",
     """CREATE INDEX IF NOT EXISTS idx_eff_event_resume ON effectiveness_event(resume_id)""",
+    """CREATE INDEX IF NOT EXISTS idx_effect_resume ON effectiveness_event(resume_id)""",
     """CREATE INDEX IF NOT EXISTS idx_eff_event_outcome ON effectiveness_event(outcome)""",
 
     # ---- Headhunter mode tables (additive) ----
@@ -551,6 +559,16 @@ def _init_schema(conn: sqlite3.Connection) -> None:
     # ----- lightweight migrations for existing DBs -----
     _ensure_column(conn, "email_event", "status", "TEXT")
     _ensure_column(conn, "email_event", "status_updated_at", "REAL")
+    _ensure_column(conn, "saved_search", "last_error", "TEXT")
+    _ensure_column(conn, "saved_search", "last_error_ts", "REAL")
+    # job_posting (source, external_id) uniqueness: dedupe rows that predate
+    # the constraint, THEN create the partial unique index (creation would
+    # fail if duplicates were still present).
+    _dedupe_job_external_ids(conn)
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_job_source_ext "
+        "ON job_posting(source, external_id) WHERE external_id IS NOT NULL"
+    )
     # seed singleton profile row
     cur = conn.execute("SELECT id FROM user_profile WHERE id = 1")
     if cur.fetchone() is None:
@@ -559,6 +577,25 @@ def _init_schema(conn: sqlite3.Connection) -> None:
             "INSERT INTO user_profile (id, currency, mode, created_at, updated_at) VALUES (1, 'USD', 'assisted', ?, ?)",
             (now, now),
         )
+
+
+def _dedupe_job_external_ids(conn: sqlite3.Connection) -> None:
+    """Collapse job_posting rows sharing (source, external_id) so the partial
+    unique index idx_job_source_ext can be created on DBs that predate it.
+
+    Empty-string external ids are normalized to NULL first — adapters that
+    don't supply one default to "" and those rows are NOT duplicates of each
+    other (the partial index ignores NULLs). For real duplicates the lowest
+    id is kept; FK cascades clean up children (job_match, application,
+    cover_letter, gap_event, llm_job_score, ...).
+    """
+    conn.execute("UPDATE job_posting SET external_id = NULL WHERE external_id = ''")
+    conn.execute(
+        "DELETE FROM job_posting WHERE external_id IS NOT NULL AND id NOT IN ("
+        " SELECT MIN(id) FROM job_posting"
+        " WHERE external_id IS NOT NULL"
+        " GROUP BY source, external_id)"
+    )
 
 
 def _ensure_column(conn: sqlite3.Connection, table: str, column: str, decl: str) -> None:

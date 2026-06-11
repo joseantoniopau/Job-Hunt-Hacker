@@ -148,7 +148,7 @@ async def autopilot_start(
     except Exception as exc:  # noqa: BLE001
         log.warning("autopilot profile step failed: %s", exc)
         summary["steps"].append({"name": "profile_inferred", "status": "error",
-                                 "detail": f"{type(exc).__name__}: {exc}"})
+                                 "detail": f"{type(exc).__name__} (see server log)"})
 
     # 2. Ingest evidence ---------------------------------------------------
     # The resume file is consumed by profile inference (it read() the bytes),
@@ -239,7 +239,7 @@ async def autopilot_start(
     except Exception as exc:  # noqa: BLE001
         log.warning("autopilot vault step failed: %s", exc)
         summary["steps"].append({"name": "vault_populated", "status": "error",
-                                 "detail": f"{type(exc).__name__}: {exc}"})
+                                 "detail": f"{type(exc).__name__} (see server log)"})
 
     # 3. Run search using inferred target_titles --------------------------
     # All query/remote/location rules live in build_search_plan so this
@@ -321,7 +321,7 @@ async def autopilot_start(
     except Exception as exc:  # noqa: BLE001
         log.warning("autopilot search step failed: %s", exc)
         summary["steps"].append({"name": "search_complete", "status": "error",
-                                 "detail": f"{type(exc).__name__}: {exc}"})
+                                 "detail": f"{type(exc).__name__} (see server log)"})
 
     # 4. Score every job (new + existing un-scored) ------------------------
     try:
@@ -346,7 +346,7 @@ async def autopilot_start(
     except Exception as exc:  # noqa: BLE001
         log.warning("autopilot scoring step failed: %s", exc)
         summary["steps"].append({"name": "scoring_complete", "status": "error",
-                                 "detail": f"{type(exc).__name__}: {exc}"})
+                                 "detail": f"{type(exc).__name__} (see server log)"})
 
     # 4b. LLM second-pass scoring (semantic rerank) -----------------------
     # Only runs when a real LLM is configured. Template-provider users get
@@ -379,7 +379,7 @@ async def autopilot_start(
     except Exception as exc:  # noqa: BLE001
         log.warning("autopilot llm_rerank step failed: %s", exc)
         summary["steps"].append({"name": "llm_rerank_complete", "status": "error",
-                                 "detail": f"{type(exc).__name__}: {exc}"})
+                                 "detail": f"{type(exc).__name__} (see server log)"})
 
     # 5. Pick the top jobs by score for tailoring + packets ---------------
     # Dedupe by job_id so we never tailor the same job twice in one run.
@@ -435,7 +435,7 @@ async def autopilot_start(
     except Exception as exc:  # noqa: BLE001
         log.warning("autopilot tailoring step failed: %s", exc)
         summary["steps"].append({"name": "tailoring_complete", "status": "error",
-                                 "detail": f"{type(exc).__name__}: {exc}"})
+                                 "detail": f"{type(exc).__name__} (see server log)"})
 
     # 7. Build packets for top M (dedupe + link tailored resume to app) --
     try:
@@ -477,7 +477,7 @@ async def autopilot_start(
     except Exception as exc:  # noqa: BLE001
         log.warning("autopilot packets step failed: %s", exc)
         summary["steps"].append({"name": "packets_built", "status": "error",
-                                 "detail": f"{type(exc).__name__}: {exc}"})
+                                 "detail": f"{type(exc).__name__} (see server log)"})
 
     # 8. Register recurring saved searches for tomorrow + onward ----------
     # One saved search per title query (same plan the live search ran), so
@@ -538,7 +538,7 @@ async def autopilot_start(
         except Exception as exc:  # noqa: BLE001
             log.warning("autopilot saved-search step failed: %s", exc)
             summary["steps"].append({"name": "saved_search_registered", "status": "error",
-                                     "detail": f"{type(exc).__name__}: {exc}"})
+                                     "detail": f"{type(exc).__name__} (see server log)"})
 
     summary["elapsed_ms"] = int((time.time() - started) * 1000)
     audit("autopilot_run", "system", None,

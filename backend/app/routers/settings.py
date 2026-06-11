@@ -484,15 +484,29 @@ def _imap_test(*, host: str, user: str, passwd: str, started: float) -> dict[str
                 "message": f"{type(exc).__name__}: {exc}"}
 
 
+def _write_private_text(path, text: str) -> None:
+    """Write text to a file that is mode 0600 from the moment it exists —
+    no window where another local user could read the secrets."""
+    fd = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    try:
+        # O_CREAT's mode only applies to NEW files; tighten pre-existing ones
+        # (e.g. a stale .tmp left by a crash) before any bytes land.
+        os.fchmod(fd, stat.S_IRUSR | stat.S_IWUSR)
+    except OSError:
+        pass
+    with os.fdopen(fd, "w") as fh:
+        fh.write(text)
+
+
 def _write_env(updates: dict[str, str]) -> None:
     """Atomically rewrite .env: preserve comments + order, update or append
     each requested key. Empty value comments-out (leaves `KEY=` so user can
-    see it's been cleared)."""
+    see it's been cleared). All writes are 0600 from creation."""
     path = ENV_FILE
     if not path.exists():
         # If no .env yet, create from example or empty
         example = path.with_suffix(".env.example") if path.suffix == ".env" else (path.parent / ".env.example")
-        path.write_text(example.read_text() if example.exists() else "")
+        _write_private_text(path, example.read_text() if example.exists() else "")
 
     lines = path.read_text().splitlines()
     seen: set[str] = set()
@@ -521,12 +535,10 @@ def _write_env(updates: dict[str, str]) -> None:
         new_lines.extend(appended)
 
     tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text("\n".join(new_lines) + "\n")
-    try:
-        os.chmod(tmp, stat.S_IRUSR | stat.S_IWUSR)
-    except Exception:
-        pass
+    _write_private_text(tmp, "\n".join(new_lines) + "\n")
     tmp.replace(path)
+    # rename preserves tmp's 0600, but belt-and-braces in case path had
+    # looser perms preserved by an exotic filesystem
     try:
         os.chmod(path, stat.S_IRUSR | stat.S_IWUSR)
     except Exception:

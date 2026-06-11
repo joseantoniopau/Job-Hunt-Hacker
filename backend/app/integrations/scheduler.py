@@ -64,6 +64,8 @@ def start() -> None:
         _register_followups()
         _register_daily_digest()
         register_audit_retention()
+        register_email_calendar_retention()
+        register_db_maintenance()
         register_saved_searches()
         try:
             audit("scheduler_start", "system", jobs=[j.id for j in s.get_jobs()])
@@ -185,7 +187,12 @@ def delete_saved_search(saved_search_id: int) -> bool:
 
 
 def _run_saved_search(saved_search_id: int) -> dict:
-    """Execute one saved search: search + persist + score new ids."""
+    """Execute one saved search: search + persist + score new ids.
+
+    Any failure (raised exception, pipeline import error, ...) is recorded
+    on the row as last_error/last_error_ts and audited as
+    `saved_search_failed`; a successful run clears last_error.
+    """
     conn = get_conn()
     row = conn.execute("SELECT * FROM saved_search WHERE id = ?", (int(saved_search_id),)).fetchone()
     if not row:
@@ -193,6 +200,29 @@ def _run_saved_search(saved_search_id: int) -> dict:
     rec = row_to_dict(row)
     if not rec.get("enabled"):
         return {"ok": False, "detail": "disabled"}
+    try:
+        return _execute_saved_search(int(saved_search_id), rec)
+    except Exception as exc:  # noqa: BLE001
+        err = f"{type(exc).__name__}: {exc}"
+        log.warning("saved_search %s failed: %s", saved_search_id, err)
+        try:
+            with tx() as c:
+                c.execute(
+                    "UPDATE saved_search SET last_error = ?, last_error_ts = ? WHERE id = ?",
+                    (err, time.time(), int(saved_search_id)),
+                )
+        except Exception:
+            pass
+        try:
+            audit("saved_search_failed", "saved_search", int(saved_search_id), error=err)
+        except Exception:
+            pass
+        return {"ok": False, "saved_search_id": int(saved_search_id), "detail": err}
+
+
+def _execute_saved_search(saved_search_id: int, rec: dict) -> dict:
+    """Body of one saved-search run. Raises on failure — _run_saved_search
+    owns the error bookkeeping."""
     query = rec.get("query_json") or {}
     if isinstance(query, str):
         try:
@@ -200,13 +230,9 @@ def _run_saved_search(saved_search_id: int) -> dict:
         except Exception:
             query = {}
 
-    try:
-        from ..services.job_sources.pipeline import persist, search_all
-        from ..services.job_sources.base import JobSearchQuery
-        from ..services.job_sources import REGISTRY
-    except Exception as exc:  # noqa: BLE001
-        log.warning("search pipeline unavailable: %s", exc)
-        return {"ok": False, "detail": f"pipeline_unavailable: {exc}"}
+    from ..services.job_sources.pipeline import persist, search_all
+    from ..services.job_sources.base import JobSearchQuery
+    from ..services.job_sources import REGISTRY
 
     sites = query.get("sites") or []
     requested: list[str] = []
@@ -256,7 +282,8 @@ def _run_saved_search(saved_search_id: int) -> dict:
 
     with tx() as conn:
         conn.execute(
-            "UPDATE saved_search SET last_run_at = ? WHERE id = ?",
+            "UPDATE saved_search SET last_run_at = ?, last_error = NULL, last_error_ts = NULL "
+            "WHERE id = ?",
             (time.time(), int(saved_search_id)),
         )
     try:
@@ -475,20 +502,54 @@ def _register_daily_digest() -> None:
 def status() -> dict:
     s = _get_scheduler()
     jobs: list[dict] = []
+    saved: dict[int, dict] = {}
+    try:
+        conn = get_conn()
+        for r in conn.execute(
+            "SELECT id, label, enabled, last_run_at, last_error, last_error_ts "
+            "FROM saved_search ORDER BY id"
+        ).fetchall():
+            saved[int(r["id"])] = {
+                "id": int(r["id"]),
+                "label": r["label"],
+                "enabled": bool(r["enabled"]),
+                "last_run_at": r["last_run_at"],
+                "last_error": r["last_error"],
+                "last_error_ts": r["last_error_ts"],
+            }
+    except Exception:
+        pass
     if s is not None:
         try:
             for j in s.get_jobs():
-                jobs.append({
+                nrt = getattr(j, "next_run_time", None)
+                # datetime -> ISO string; unscheduled (paused) -> None. Never
+                # a raw datetime — status() is returned straight as JSON.
+                nrt_iso = nrt.isoformat() if hasattr(nrt, "isoformat") else (str(nrt) if nrt else None)
+                entry = {
                     "id": j.id,
-                    "next_run": str(getattr(j, "next_run_time", "")),
+                    "next_run": nrt_iso,
+                    "next_run_time": nrt_iso,
                     "trigger": str(getattr(j, "trigger", "")),
-                })
+                }
+                if str(j.id or "").startswith("saved_search_"):
+                    try:
+                        sid = int(str(j.id).rsplit("_", 1)[1])
+                    except (ValueError, IndexError):
+                        sid = None
+                    info = saved.get(sid) if sid is not None else None
+                    if info:
+                        entry["last_run_at"] = info["last_run_at"]
+                        entry["last_error"] = info["last_error"]
+                        entry["last_error_ts"] = info["last_error_ts"]
+                jobs.append(entry)
         except Exception:
             pass
     return {
         "apscheduler_installed": _HAS_APS,
         "running": is_running(),
         "jobs": jobs,
+        "saved_searches": list(saved.values()),
     }
 
 
@@ -540,4 +601,121 @@ def register_audit_retention() -> bool:
         return True
     except Exception as exc:  # noqa: BLE001
         log.warning("audit retention scheduler register failed: %s", exc)
+        return False
+
+
+# ---------- email / calendar retention ----------
+
+_EMAIL_CAL_RETENTION_JOB_ID = "jhh.email_calendar_retention"
+
+
+def run_email_calendar_retention() -> dict:
+    """Delete email_event/calendar_event rows past their retention windows.
+
+    JHH_EMAIL_RETENTION_DAYS (default 180) ages out email_event by
+    received_at; JHH_CALENDAR_RETENTION_DAYS (default 365) ages out
+    calendar_event by start_time. Rows without a timestamp are kept —
+    NULL never compares < cutoff.
+    """
+    import os
+
+    def _days(env: str, default: int) -> int:
+        try:
+            return max(1, int(os.environ.get(env, str(default))))
+        except ValueError:
+            return default
+
+    email_days = _days("JHH_EMAIL_RETENTION_DAYS", 180)
+    calendar_days = _days("JHH_CALENDAR_RETENTION_DAYS", 365)
+    now = time.time()
+    email_cutoff = now - email_days * 86400
+    calendar_cutoff = now - calendar_days * 86400
+    with tx() as c:
+        cur = c.execute("DELETE FROM email_event WHERE received_at < ?", (email_cutoff,))
+        email_deleted = int(cur.rowcount or 0)
+        cur = c.execute("DELETE FROM calendar_event WHERE start_time < ?", (calendar_cutoff,))
+        calendar_deleted = int(cur.rowcount or 0)
+    if email_deleted or calendar_deleted:
+        # Self-audit ONLY when something was deleted (avoid noise).
+        try:
+            audit("email_calendar_retention_purged", "system", None,
+                  email_deleted=email_deleted, calendar_deleted=calendar_deleted,
+                  email_retention_days=email_days, calendar_retention_days=calendar_days)
+        except Exception:
+            pass
+    return {"ok": True, "email_deleted": email_deleted, "calendar_deleted": calendar_deleted,
+            "email_retention_days": email_days, "calendar_retention_days": calendar_days,
+            "email_cutoff_ts": email_cutoff, "calendar_cutoff_ts": calendar_cutoff}
+
+
+def register_email_calendar_retention() -> bool:
+    """Daily job at 04:00 UTC. Idempotent via replace_existing."""
+    s = _get_scheduler()
+    if s is None:
+        return False
+    try:
+        s.add_job(
+            run_email_calendar_retention,
+            CronTrigger(hour=4, minute=0, timezone="UTC"),
+            id=_EMAIL_CAL_RETENTION_JOB_ID,
+            replace_existing=True,
+            misfire_grace_time=3600,
+        )
+        return True
+    except Exception as exc:  # noqa: BLE001
+        log.warning("email/calendar retention scheduler register failed: %s", exc)
+        return False
+
+
+# ---------- nightly DB maintenance ----------
+
+_DB_MAINTENANCE_JOB_ID = "jhh.db_maintenance"
+
+
+def run_db_maintenance() -> dict:
+    """PRAGMA optimize + WAL checkpoint so the SQLite file stays compact and
+    the query planner stats stay fresh on long-running installs."""
+    conn = get_conn()
+    optimized = False
+    checkpoint: list[int] | None = None
+    error: str | None = None
+    try:
+        conn.execute("PRAGMA optimize")
+        optimized = True
+    except Exception as exc:  # noqa: BLE001
+        error = f"optimize: {exc}"
+        log.warning("PRAGMA optimize failed: %s", exc)
+    try:
+        row = conn.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()
+        # (busy, log_pages, checkpointed_pages)
+        checkpoint = [int(v) for v in row] if row else None
+    except Exception as exc:  # noqa: BLE001
+        error = (error + "; " if error else "") + f"wal_checkpoint: {exc}"
+        log.warning("wal_checkpoint failed: %s", exc)
+    out: dict = {"ok": error is None, "optimized": optimized, "wal_checkpoint": checkpoint}
+    if error:
+        out["detail"] = error
+    try:
+        audit("db_maintenance_run", "system", None, **out)
+    except Exception:
+        pass
+    return out
+
+
+def register_db_maintenance() -> bool:
+    """Nightly job at 04:30 UTC. Idempotent via replace_existing."""
+    s = _get_scheduler()
+    if s is None:
+        return False
+    try:
+        s.add_job(
+            run_db_maintenance,
+            CronTrigger(hour=4, minute=30, timezone="UTC"),
+            id=_DB_MAINTENANCE_JOB_ID,
+            replace_existing=True,
+            misfire_grace_time=3600,
+        )
+        return True
+    except Exception as exc:  # noqa: BLE001
+        log.warning("db maintenance scheduler register failed: %s", exc)
         return False

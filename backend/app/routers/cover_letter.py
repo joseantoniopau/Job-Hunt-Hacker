@@ -29,7 +29,7 @@ def generate(request: Request, body: CoverLetterRequest) -> dict:
         raise HTTPException(404, str(e))
     except Exception as e:  # noqa: BLE001
         log.warning("cover letter failed: %s", e)
-        raise HTTPException(500, f"cover letter failed: {e}")
+        raise HTTPException(500, "cover letter failed (see server log)")
     return {"ok": True, "data": result}
 
 

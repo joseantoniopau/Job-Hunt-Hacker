@@ -19,8 +19,12 @@ log = logging.getLogger("jhh.tailoring.negotiation")
 
 try:
     from ..llm import get_llm  # type: ignore
+    from ..llm.json_repair import extract_json  # type: ignore
+    from ..llm.observability import observed_complete  # type: ignore
 except Exception:  # pragma: no cover
     get_llm = None  # type: ignore
+    extract_json = None  # type: ignore
+    observed_complete = None  # type: ignore
 
 
 # ---- helpers ----
@@ -243,13 +247,19 @@ _LLM_SYS = (
 )
 
 
-def _llm_script(app, claims, market_compare, offer_base, offer_total, currency) -> dict:
-    if get_llm is None:
-        return {}
+def _llm_script(app, claims, market_compare, offer_base, offer_total,
+                currency) -> tuple[dict, Optional[int]]:
+    """Run the negotiation-script LLM call under observability.
+
+    Returns (script_dict, llm_run_id). The script is {} when the call
+    failed or produced unusable output (caller falls back to the
+    deterministic template); llm_run_id is None when no run row was
+    recorded.
+    """
+    if get_llm is None or observed_complete is None or extract_json is None:
+        return {}, None
     try:
         provider = get_llm()
-        if getattr(provider, "name", "") in ("", "template"):
-            return {}
         evidence = [
             {"id": c.get("id"), "text": (c.get("claim_text") or "")[:200]}
             for c in claims if c.get("id")
@@ -270,13 +280,24 @@ def _llm_script(app, claims, market_compare, offer_base, offer_total, currency) 
             },
             "evidence": evidence,
         })
-        data = provider.complete_json(_LLM_SYS, user, max_tokens=1200, temperature=0.3) or {}
+        raw, run_id = observed_complete(
+            provider,
+            "negotiation_script",
+            _LLM_SYS,
+            user,
+            max_tokens=1200,
+            temperature=0.3,
+            target_type="application",
+            target_id=int(app.get("id") or 0) or None,
+        )
+        llm_run_id = int(run_id) if run_id and run_id > 0 else None
+        data = extract_json(raw or "")
         if not isinstance(data, dict):
-            return {}
-        return data
+            return {}, llm_run_id
+        return data, llm_run_id
     except Exception as e:
         log.warning("LLM negotiation script failed: %s", e)
-        return {}
+        return {}, None
 
 
 def _filter_provenance(script: dict, allowed_ids: set[int]) -> dict:
@@ -314,7 +335,7 @@ def generate(
     allowed_ids = {int(c["id"]) for c in claims if c.get("id")}
 
     # Try LLM first; fall back to deterministic if it fails or is unavailable.
-    script = _llm_script(app, claims, market_compare, offer_base, offer_total, currency)
+    script, llm_run_id = _llm_script(app, claims, market_compare, offer_base, offer_total, currency)
     used_provider = "llm"
     if not script or not script.get("opening"):
         script = _deterministic_script(app, claims, market_compare, offer_base, offer_total, currency)
@@ -338,6 +359,7 @@ def generate(
         "offer_total": int(offer_total),
         "market": market_compare,
         "script": script,
+        "llm_run_id": llm_run_id,
         "provenance": {
             "claim_ids": distinct_ids,
             "claims_available": len(allowed_ids),
@@ -352,6 +374,7 @@ def generate(
             int(application_id),
             offer_base=offer_base,
             provider=used_provider,
+            llm_run_id=llm_run_id,
         )
     except Exception:
         pass

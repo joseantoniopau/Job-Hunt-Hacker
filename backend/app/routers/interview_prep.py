@@ -24,7 +24,7 @@ from typing import Any, Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from ..db import audit, get_conn, row_to_dict, tx
+from ..db import _ensure_column, audit, get_conn, row_to_dict, tx
 from ..llm import get_llm
 from ..llm.json_repair import extract_json
 from ..llm.observability import observed_complete
@@ -155,6 +155,56 @@ def _evidence_for_prompt(rows: list[dict]) -> list[dict]:
             "provenance": provenance,
         })
     return out
+
+
+# ----------------------------------------------------------------------
+# Evidence budget — keep the serialized evidence pack bounded so a huge
+# vault can't blow up the prompt. When over budget we drop the LOWEST
+# confidence claims first (ties: the later claim goes first) and preserve
+# the original order of the survivors, then flag the truncation in the
+# packet payload so the UI/honesty story stays accurate.
+# ----------------------------------------------------------------------
+
+_EVIDENCE_BUDGET_CHARS = 11000
+
+
+def _serialize_evidence(evidence_pack: list[dict]) -> str:
+    """Exactly how the evidence pack is embedded in the prompt."""
+    return json.dumps(evidence_pack, indent=2, default=str)
+
+
+def _apply_evidence_budget(evidence_pack: list[dict],
+                           confidence_by_id: dict[int, float],
+                           budget: int = _EVIDENCE_BUDGET_CHARS,
+                           ) -> tuple[list[dict], dict]:
+    """Trim `evidence_pack` until its serialized form fits `budget` chars.
+
+    Returns (kept_pack, meta) where meta carries `evidence_truncated` +
+    counts for the packet payload. Stable: survivors keep their original
+    relative order; only the lowest-confidence claims are dropped.
+    """
+    total = len(evidence_pack)
+    kept = list(evidence_pack)
+    serialized = _serialize_evidence(kept)
+    truncated = False
+    while kept and len(serialized) > budget:
+        truncated = True
+        drop_i = min(
+            range(len(kept)),
+            key=lambda i: (
+                confidence_by_id.get(int(kept[i].get("id") or 0), 0.0),
+                -i,
+            ),
+        )
+        kept.pop(drop_i)
+        serialized = _serialize_evidence(kept)
+    return kept, {
+        "evidence_truncated": truncated,
+        "claims_total": total,
+        "claims_kept": len(kept),
+        "budget_chars": int(budget),
+        "serialized_chars": len(serialized),
+    }
 
 
 # ----------------------------------------------------------------------
@@ -408,6 +458,11 @@ def _generate_prep_packet(application_id: int) -> dict:
     profile = _load_user_profile()
     evidence_rows = _evidence_pack_for_job(app, top=20)
     evidence_pack = _evidence_for_prompt(evidence_rows)
+    confidence_by_id = {
+        int(r["id"]): float(r.get("confidence") or 0.0)
+        for r in evidence_rows if r.get("id")
+    }
+    evidence_pack, evidence_meta = _apply_evidence_budget(evidence_pack, confidence_by_id)
 
     provider = get_llm()
     sys_prompt = _PREP_SYSTEM
@@ -434,15 +489,17 @@ def _generate_prep_packet(application_id: int) -> dict:
 
     packet = _normalize_packet(parsed, evidence_pack, app)
 
-    # Persist
+    # Persist (additive column for the evidence-budget meta on older DBs)
     now = time.time()
+    _ensure_column(get_conn(), "interview_prep_packet", "evidence_meta_json", "TEXT")
     with tx() as conn:
         cur = conn.execute(
             """INSERT INTO interview_prep_packet
                (application_id, job_id, created_at, company_brief,
                 behavioral_questions_json, technical_questions_json,
-                scenario_questions_json, star_skeletons_json, llm_run_id)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                scenario_questions_json, star_skeletons_json, llm_run_id,
+                evidence_meta_json)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 int(application_id),
                 int(job_id) if job_id else None,
@@ -453,15 +510,31 @@ def _generate_prep_packet(application_id: int) -> dict:
                 json.dumps(packet["scenario_questions"]),
                 json.dumps(packet["star_skeletons"]),
                 int(llm_run_id) if llm_run_id and llm_run_id > 0 else None,
+                json.dumps(evidence_meta),
             ),
         )
         packet_id = int(cur.lastrowid)
 
     audit("interview_prep_packet", "application", int(application_id),
           packet_id=packet_id, llm_run_id=llm_run_id,
-          claims_used=len(evidence_pack))
+          claims_used=len(evidence_pack),
+          evidence_truncated=evidence_meta["evidence_truncated"],
+          claims_total=evidence_meta["claims_total"])
 
     return _packet_row(packet_id)
+
+
+def _decorate_packet(d: Optional[dict]) -> Optional[dict]:
+    """Surface the evidence-budget flags top-level on the packet payload
+    so the UI/honesty story doesn't have to dig into evidence_meta_json."""
+    if not d:
+        return d
+    meta = d.get("evidence_meta_json")
+    if isinstance(meta, dict):
+        d["evidence_truncated"] = bool(meta.get("evidence_truncated"))
+        d["evidence_claims_total"] = meta.get("claims_total")
+        d["evidence_claims_kept"] = meta.get("claims_kept")
+    return d
 
 
 def _packet_row(packet_id: int) -> dict:
@@ -469,7 +542,7 @@ def _packet_row(packet_id: int) -> dict:
         "SELECT * FROM interview_prep_packet WHERE id = ?",
         (int(packet_id),),
     ).fetchone()
-    return row_to_dict(row) or {}
+    return _decorate_packet(row_to_dict(row)) or {}
 
 
 def _latest_packet_for(application_id: int) -> Optional[dict]:
@@ -479,7 +552,7 @@ def _latest_packet_for(application_id: int) -> Optional[dict]:
         "ORDER BY created_at DESC LIMIT 1",
         (int(application_id),),
     ).fetchone()
-    return row_to_dict(row) if row else None
+    return _decorate_packet(row_to_dict(row)) if row else None
 
 
 # ----------------------------------------------------------------------

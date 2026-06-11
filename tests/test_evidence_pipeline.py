@@ -6,6 +6,7 @@ import time
 from backend.app.db import init_db
 from backend.app.services import career_vault
 from backend.app.services.evidence_extractor import extract_claims
+from backend.app.services.llm_vault_reingest import _span_in_text
 
 
 def _setup():
@@ -55,6 +56,26 @@ def test_extract_claims_no_fabrication():
         emp = (c.get("employer") or "").lower()
         if emp:
             assert emp in text_lc, f"claim mentions employer {emp!r} not in source"
+
+
+def test_span_in_text_accepts_three_char_spans():
+    """Short skill tags like 'AWS' / 'SQL' / 'C++' are legitimate literal
+    spans — the minimum is 3 chars, not 6."""
+    text = "Skills: AWS, SQL, C++, Python\nLed a team\nof 4 engineers"
+    assert _span_in_text("AWS", text)
+    assert _span_in_text("sql", text)
+    assert _span_in_text("C++", text)
+    # whitespace re-flow still verifies
+    assert _span_in_text("Led a team of 4 engineers", text)
+
+
+def test_span_in_text_rejects_one_and_two_char_spans():
+    text = "Skills: AWS, Go, SQL"
+    assert not _span_in_text("Go", text)   # 2 chars — too short to verify
+    assert not _span_in_text("a", text)
+    assert not _span_in_text("", text)
+    assert not _span_in_text("  s ", text)  # 1 char after strip
+    assert not _span_in_text("Rust", text)  # long enough but not in text
 
 
 def test_vault_retrieve_for_job_returns_supported_only():

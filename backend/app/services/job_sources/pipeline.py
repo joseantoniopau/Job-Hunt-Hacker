@@ -7,6 +7,7 @@ import logging
 import time
 from dataclasses import asdict
 from typing import Any
+from urllib.parse import urlsplit
 
 from ...db import audit, get_conn, row_to_dict, tx
 from . import cache as _cache
@@ -153,8 +154,60 @@ def _safe_healthy(adapter: Any) -> bool:
 
 # ------------------------------------------------------------- persist ----
 
+# A posting seen on two boards within this window is the same real-world job.
+_CROSS_SOURCE_DEDUP_WINDOW_S = 14 * 86400
+
+
+def _canonical_url_key(url: str | None) -> str:
+    """host+path of a URL: lowercased, `www.`-stripped, trailing slash and
+    query/fragment dropped. The same Greenhouse posting reached via LinkedIn
+    vs. directly differs only in tracking params — this collapses them."""
+    if not url:
+        return ""
+    try:
+        parsed = urlsplit(url.strip())
+    except ValueError:
+        return ""
+    host = (parsed.netloc or "").lower()
+    if host.startswith("www."):
+        host = host[4:]
+    if not host:
+        return ""
+    return host + (parsed.path or "").rstrip("/")
+
+
+def _find_cross_source_duplicate(conn: Any, rec: JobRecord, since: float) -> int | None:
+    """Id of an existing posting that is the same real-world job as `rec`,
+    discovered within the dedup window, regardless of source.
+
+    Match: lower(title)+lower(company) AND (same canonical apply_url
+    host+path OR same location)."""
+    title = (rec.title or "").strip().lower()
+    company = (rec.company or "").strip().lower()
+    if not title or not company:
+        return None
+    rec_url = _canonical_url_key(rec.apply_url)
+    rec_loc = (rec.location or "").strip().lower()
+    if not rec_url and not rec_loc:
+        return None
+    rows = conn.execute(
+        "SELECT id, apply_url, location FROM job_posting "
+        "WHERE lower(trim(title)) = ? AND lower(trim(company)) = ? AND discovered_at >= ?",
+        (title, company, since),
+    ).fetchall()
+    for row in rows:
+        if rec_url and _canonical_url_key(row["apply_url"]) == rec_url:
+            return int(row["id"])
+        if rec_loc and (row["location"] or "").strip().lower() == rec_loc:
+            return int(row["id"])
+    return None
+
+
 def persist(records: list[JobRecord]) -> dict:
-    """Insert each record; UNIQUE(hash) collapses duplicates."""
+    """Insert each record; UNIQUE(hash) + UNIQUE(source, external_id)
+    collapse same-source duplicates, and a title+company (+url-or-location)
+    probe collapses the same job re-listed by a different board within 14
+    days."""
     inserted = 0
     duplicates = 0
     ids: list[int] = []
@@ -168,6 +221,9 @@ def persist(records: list[JobRecord]) -> dict:
                 continue
             seen.add(h)
             try:
+                if _find_cross_source_duplicate(conn, rec, now - _CROSS_SOURCE_DEDUP_WINDOW_S) is not None:
+                    duplicates += 1
+                    continue
                 cur = conn.execute(
                     """INSERT OR IGNORE INTO job_posting
                     (external_id, source, title, company, location, remote_type,
@@ -178,7 +234,9 @@ def persist(records: list[JobRecord]) -> dict:
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'new')
                     """,
                     (
-                        rec.external_id,
+                        # NULL (not "") so the partial unique index
+                        # idx_job_source_ext only constrains real ids.
+                        rec.external_id or None,
                         rec.source,
                         rec.title,
                         rec.company,

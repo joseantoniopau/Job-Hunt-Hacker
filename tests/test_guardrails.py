@@ -34,6 +34,77 @@ def test_validate_provenance_drops_unsupported_segments():
     assert "no_valid_evidence_ids" in reasons
 
 
+def test_validate_provenance_keeps_only_tagged_boilerplate_paragraphs():
+    """Only kind='boilerplate' paragraphs may ship without evidence_ids —
+    greeting/closing survive, an untagged unsupported body paragraph dies."""
+    out = {
+        "paragraphs": [
+            {"text": "Dear Hiring Manager,", "evidence_ids": [], "kind": "boilerplate"},
+            {"text": "Led the payments migration.", "evidence_ids": [1], "kind": "body"},
+            {"text": "I single-handedly invented Kubernetes.", "evidence_ids": [], "kind": "body"},
+            {"text": "Thank you,\nJane", "evidence_ids": [], "kind": "boilerplate"},
+        ],
+    }
+    cleaned = validate_provenance(out, {1})
+    texts = [p["text"] for p in cleaned["paragraphs"]]
+    assert texts == [
+        "Dear Hiring Manager,",
+        "Led the payments migration.",
+        "Thank you,\nJane",
+    ]
+    dropped = (cleaned.get("honesty_report") or {}).get("dropped_segments") or []
+    assert len(dropped) == 1
+    assert dropped[0]["where"] == "paragraphs[2]"
+
+
+def test_validate_provenance_no_positional_exemption_for_edge_paragraphs():
+    """First/last paragraphs get no free pass: without a boilerplate tag and
+    without valid evidence_ids they are dropped like any other segment."""
+    out = {
+        "paragraphs": [
+            {"text": "I built the original ARPANET.", "evidence_ids": []},
+            {"text": "Backed claim.", "evidence_ids": [7]},
+            {"text": "I also run NASA on weekends.", "evidence_ids": [999]},
+        ],
+    }
+    cleaned = validate_provenance(out, {7})
+    assert [p["text"] for p in cleaned["paragraphs"]] == ["Backed claim."]
+    dropped = (cleaned.get("honesty_report") or {}).get("dropped_segments") or []
+    assert {d["where"] for d in dropped} == {"paragraphs[0]", "paragraphs[2]"}
+
+
+def test_cover_letter_deterministic_fallback_survives_guardrails():
+    """The deterministic cover-letter fallback tags greeting/closing as
+    boilerplate, so the full flow keeps them even with the strict (no
+    positional exemption) provenance rules."""
+    from backend.app.db import init_db, tx
+    from backend.app.tailoring import cover_letter
+    import time
+
+    init_db()
+    tag = f"cl_{int(time.time() * 1000)}"
+    with tx() as conn:
+        cur = conn.execute(
+            "INSERT INTO job_posting (source, title, company, description, "
+            "discovered_at, hash) VALUES (?, ?, ?, ?, ?, ?)",
+            ("test_src", f"Test Role {tag}", "TestCo",
+             "Python AWS engineer needed", time.time(), f"hash_{tag}"),
+        )
+        job_id = int(cur.lastrowid)
+
+    result = cover_letter.generate(job_id)
+    paragraphs = result.get("paragraphs") or []
+    kinds = [p.get("kind") for p in paragraphs if isinstance(p, dict)]
+    # Greeting + closing boilerplate must survive the guardrails pass
+    assert kinds.count("boilerplate") == 2
+    assert paragraphs[0].get("kind") == "boilerplate"
+    assert paragraphs[-1].get("kind") == "boilerplate"
+    # Any surviving body paragraph must carry evidence
+    for p in paragraphs:
+        if p.get("kind") != "boilerplate":
+            assert p.get("evidence_ids"), f"unsupported paragraph survived: {p!r}"
+
+
 def test_enforce_keyword_safety_splits_safe_unsafe():
     matrix = [
         {"keyword": "python", "resume_safe": True},
