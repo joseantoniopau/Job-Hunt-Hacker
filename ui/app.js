@@ -79,6 +79,31 @@
     setTimeout(() => el.remove(), 4200);
   }
 
+  // Toast with an UNDO action (6s window). `onUndo` is invoked if clicked.
+  function toastUndo(msg, onUndo, kind = '') {
+    const host = document.getElementById('toasts');
+    if (!host) { if (onUndo) {/* no host: nothing to offer */} return; }
+    const wrap = document.createElement('div');
+    wrap.className = 'toast toast-undo ' + (kind || '');
+    const span = document.createElement('span');
+    span.textContent = msg;
+    const btn = document.createElement('button');
+    btn.className = 'toast-undo-btn';
+    btn.textContent = 'UNDO';
+    let done = false;
+    const close = () => { if (!wrap._removed) { wrap._removed = true; wrap.remove(); } };
+    btn.addEventListener('click', async () => {
+      if (done) return;
+      done = true;
+      close();
+      try { await onUndo(); } catch (_) {}
+    });
+    wrap.appendChild(span);
+    wrap.appendChild(btn);
+    host.appendChild(wrap);
+    setTimeout(close, 6000);
+  }
+
   // ----- DOM helpers -----
   const $  = (sel, root = document) => root.querySelector(sel);
   const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
@@ -275,6 +300,48 @@
     if (m) m.addEventListener('click', (e) => { if (e.target === m) toggleShortcutsModal(false); });
     const hint = $('#kbd-hint');
     if (hint) hint.addEventListener('click', () => toggleShortcutsModal(true));
+    bindModalFocusTraps();
+  }
+
+  // Centralized modal focus management: many modals open by removing the
+  // `hidden` class from scattered call sites, so a MutationObserver is the
+  // one place that catches them all. On open: remember the previously
+  // focused element, move focus into the modal, and trap Tab inside it.
+  // On close: restore focus. Keeps keyboard users from tabbing out into
+  // the page behind a dialog.
+  const _modalReturnFocus = new WeakMap();
+  function _focusables(root) {
+    return $$('a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])', root)
+      .filter(elm => elm.offsetParent !== null || elm === document.activeElement);
+  }
+  function _trapTab(modal) {
+    modal.addEventListener('keydown', (e) => {
+      if (e.key !== 'Tab') return;
+      const f = _focusables(modal);
+      if (!f.length) return;
+      const first = f[0], last = f[f.length - 1];
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    });
+  }
+  function bindModalFocusTraps() {
+    for (const modal of $$('.modal')) {
+      _trapTab(modal);
+      const obs = new MutationObserver(() => {
+        const open = !modal.classList.contains('hidden');
+        if (open && !modal._wasOpen) {
+          _modalReturnFocus.set(modal, document.activeElement);
+          const f = _focusables(modal);
+          if (f.length) setTimeout(() => f[0].focus(), 0);
+        } else if (!open && modal._wasOpen) {
+          const ret = _modalReturnFocus.get(modal);
+          if (ret && ret.focus) setTimeout(() => ret.focus(), 0);
+        }
+        modal._wasOpen = open;
+      });
+      obs.observe(modal, { attributes: true, attributeFilter: ['class'] });
+      modal._wasOpen = !modal.classList.contains('hidden');
+    }
   }
 
   // ----- health + settings (boot) -----
@@ -1434,11 +1501,15 @@
   }
 
   async function dismissJobInline(j, btn) {
+    const prior = j.status || 'new';
     btn.disabled = true; btn.textContent = '…';
     const r = await api.patch('/api/jobs/' + j.id + '/status', { status: 'dismissed' });
     btn.disabled = false; btn.textContent = 'DISMISS';
     if (r.ok) {
-      toast(`Dismissed "${j.title || j.id}". REFRESH will exclude it.`, 'success');
+      toastUndo(`Dismissed "${j.title || j.id}".`, async () => {
+        const u = await api.patch('/api/jobs/' + j.id + '/status', { status: prior });
+        if (u.ok) { toast('Restored.', 'success'); await loadJobs(); }
+      }, 'success');
       await loadJobs();
     }
   }
@@ -1456,7 +1527,11 @@
     if (!confirm(`Dismiss ${ids.length} job(s)? They will be excluded from future REFRESH calls.`)) return;
     const r = await api.post('/api/jobs/bulk-status', { job_ids: ids, status: 'dismissed' });
     if (r.ok) {
-      toast(`Dismissed ${r.data.updated.length}.`, 'success');
+      const dismissed = ids.slice();
+      toastUndo(`Dismissed ${r.data.updated.length}.`, async () => {
+        const u = await api.post('/api/jobs/bulk-status', { job_ids: dismissed, status: 'new' });
+        if (u.ok) { toast('Restored.', 'success'); await loadJobs(); }
+      }, 'success');
       await loadJobs();
       refreshJobsSelectionUI();
     }

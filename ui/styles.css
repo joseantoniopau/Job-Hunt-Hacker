@@ -3236,3 +3236,23 @@ kbd {
 .kc-deadline { margin-top: 5px; font-family: var(--mono); font-size: 10.5px; padding: 1px 5px; display: inline-block; border: 1px solid var(--hair-strong); }
 .kc-deadline.soon { background: var(--warn-soft); color: var(--warn); border-color: var(--warn); }
 .kc-deadline.overdue { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); font-weight: 700; }
+
+/* ===== v0.5 — undo toast + mobile polish ===== */
+.toast-undo { display: flex; align-items: center; gap: 10px; }
+.toast-undo-btn {
+  font-family: var(--mono); font-size: 11px; font-weight: 700; cursor: pointer;
+  background: var(--ink); color: var(--bg); border: none; padding: 3px 9px;
+}
+.toast-undo-btn:hover { background: var(--accent); }
+
+@media (max-width: 768px) {
+  .notif-dropdown { right: 4px; width: 94vw; }
+  .topbar-right { flex-wrap: wrap; gap: 4px; }
+  .demo-cta { flex-direction: column; align-items: flex-start; }
+  .refer-msg-row { flex-direction: column; }
+  .refer-msg { width: 100%; }
+  /* Keep wide data tables usable: horizontal scroll already on .table-wrap;
+     shrink type so more columns fit before scrolling. */
+  .data-table { font-size: 11px; }
+  .data-table th, .data-table td { padding: 6px 7px; }
+}
